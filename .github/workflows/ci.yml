@@ -33,6 +33,7 @@ jobs:
         pip install builderer
     - name: Generate Build Files
       run: |
+        source .venv/bin/activate
         cd examples
         builderer --config=linux generate
     - name: Build Examples
