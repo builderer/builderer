@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+
+  Linux:
+    runs-on: ubuntu-22.04
+    steps:
+    - uses: actions/setup-python@v2
+      with:
+        python-version: 3.9
+    - name: Install Builderer
+      run: pip install .
+    - name: Clone Examples
+      uses: actions/checkout@v4
+      with:
+        repository: builderer/builderer-examples
+        path: examples
+    - name: Generate Build Files
+      run: |
+        cd examples
+        builderer --config=linux generate
+    - name: Build Examples
+      run: |
+        make -C examples/Out/build/linux build -j$(nproc) CONFIG=debug
+        make -C examples/Out/build/linux build -j$(nproc) CONFIG=release
