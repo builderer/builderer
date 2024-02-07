@@ -27,15 +27,16 @@ jobs:
         ref: main
         path: examples
     - name: Install Builderer
-      run: pip install builderer
+      run: |
+        python -m venv .venv
+        source .venv/bin/activate
+        pip install builderer
     - name: Generate Build Files
       run: |
         cd examples
-        ls
         builderer --config=linux generate
     - name: Build Examples
       run: |
         cd examples
-        ls
         make -C Out/build/linux build -j$(nproc) CONFIG=debug
         make -C Out/build/linux build -j$(nproc) CONFIG=release
