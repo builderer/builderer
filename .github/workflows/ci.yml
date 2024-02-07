@@ -22,7 +22,7 @@ jobs:
     - name: Install Build Tools
       run: |
         sudo apt update
-        sudo apt -y install build-essential g++-multilib libx11-dev libxcursor-dev libxinerama-dev libxi-dev
+        sudo apt -y install build-essential g++-multilib libx11-dev libxcursor-dev libxinerama-dev libxi-dev libxrandr-dev
     - name: Clone Builderer
       uses: actions/checkout@v4
       with:
