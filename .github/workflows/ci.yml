@@ -19,21 +19,23 @@ jobs:
     - name: Clone Builderer
       uses: actions/checkout@v4
       with:
-        repository: builderer/builderer
         path: builderer
     - name: Clone Examples
       uses: actions/checkout@v4
       with:
         repository: builderer/builderer-examples
+        ref: main
         path: examples
     - name: Install Builderer
       run: pip install builderer
     - name: Generate Build Files
       run: |
         cd examples
+        ls
         builderer --config=linux generate
     - name: Build Examples
       run: |
         cd examples
+        ls
         make -C Out/build/linux build -j$(nproc) CONFIG=debug
         make -C Out/build/linux build -j$(nproc) CONFIG=release
