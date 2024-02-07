@@ -15,7 +15,7 @@ jobs:
     steps:
     - uses: actions/setup-python@v5
       with:
-        python-version: '3.10'
+        python-version: '3.9'
     - name: Clone Builderer
       uses: actions/checkout@v4
       with:
@@ -30,7 +30,7 @@ jobs:
       run: |
         python -m venv .venv
         source .venv/bin/activate
-        pip install builderer
+        pip install ./builderer
     - name: Generate Build Files
       run: |
         source .venv/bin/activate
