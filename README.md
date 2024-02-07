@@ -1,4 +1,4 @@
-# 🏗️ Builderer - a fast, dependency-free, build-system generator
+# 🏗️ Builderer - a fast, dependency-free, build-file generator
 ## Status
 Builderer is currently a work-in-progress but is capable of generating Visual
 Studio and Makefile build files that can target Windows, Linux and macOS.
