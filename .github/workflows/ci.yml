@@ -18,6 +18,9 @@ jobs:
     - uses: actions/setup-python@v5
       with:
         python-version: '3.9'
+    - name: Install MyPy
+      run: |
+        pip install mypy
     - name: Clone Builderer
       uses: actions/checkout@v4
       with:
@@ -123,11 +126,11 @@ jobs:
     - name: Install Builderer
       run: |
         python -m venv .venv
-        source .venv/bin/activate
-        pip install ./builderer
+        .venv\Scripts\activate.bat
+        pip install .\builderer
     - name: Generate Build Files
       run: |
-        source .venv/bin/activate
+        .venv\Scripts\activate.bat
         cd examples
         builderer --config=windows generate
     - name: Build Examples
