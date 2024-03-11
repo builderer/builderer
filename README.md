@@ -1,5 +1,5 @@
 # 🏗️ Builderer - a fast, dependency-free, build-file generator
-[![Actions Status](https://github.com/builderer/builderer/workflows/CI/badge.svg?branch=main)](https://github.com/builderer/builderer/actions)
+[![CI](https://github.com/builderer/builderer/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/builderer/builderer/actions/workflows/ci.yml)
 [![MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/builderer/builderer/blob/main/LICENSE)
 [![GitHub](https://img.shields.io/badge/repo-github-green.svg)](https://github.com/builderer/builderer)
 
