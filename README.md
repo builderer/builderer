@@ -1,4 +1,8 @@
 # 🏗️ Builderer - a fast, dependency-free, build-file generator
+[![Actions Status](https://github.com/builderer/builderer/workflows/CI/badge.svg?branch=main)](https://github.com/builderer/builderer/actions)
+[![MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/builderer/builderer/blob/main/LICENSE)
+[![GitHub](https://img.shields.io/badge/repo-github-green.svg)](https://github.com/builderer/builderer)
+
 ## Status
 Builderer is currently a work-in-progress but is capable of generating Visual
 Studio and Makefile build files that can target Windows, Linux and macOS.
