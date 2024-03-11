@@ -20,7 +20,7 @@ def main():
     args = parser.parse_args()
     workspace = Workspace()
     config = workspace.configs[args.config]
-    workspace.configure(config=config, requested_targets=args.targets)
+    workspace.configure(config=config, filter_target_names=args.targets)
     COMMANDS[args.command](workspace, config)
 
 if __name__ == "__main__":

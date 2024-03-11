@@ -111,7 +111,7 @@ class Workspace:
     # Configure the workspace to the given build profile, this includes
     # collapsing conditional fields, expanding variables, and filtering out
     # conditional targets...
-    def configure(self, config: Config, requested_targets: list[str] = []):
+    def configure(self, config: Config, filter_target_names: list[str] = []):
         # Empty out available configs once we set one
         self.configs = {}
         # Filter out conditional targets
@@ -126,16 +126,16 @@ class Workspace:
                     value=value,
                     permissive=isinstance(target, BuildTarget)
                 )
-        # Optionally filter graph based on requested targets
-        if requested_targets:
-            self._filter_by_requested_targets([
-                self.find_target(n, None)
-                for n in requested_targets
-            ])
         # Filter out empty packages
         self._filter_empty_packages()
         # Initialize graph
         self._update_graph()
+        # Optionally filter graph based on requested targets
+        if filter_target_names:
+            self._filter_by_requested_targets([
+                self.find_target(n, None)
+                for n in filter_target_names
+            ])
         # Configure targets...
         for _,target in self._topological_sort():
             # Configure sandbox paths for required targets
@@ -183,6 +183,7 @@ class Workspace:
     def _filter_by_requested_targets(self, targets: list[tuple[Package,Target]]):
         allowed_targets = set(self._breadth_first(targets))
         self._filter_targets(lambda p,t: (p, t) in allowed_targets)
+        self._update_graph()
 
     def _filter_targets(self, condition: Callable):
         for pkg in self.packages.values():
