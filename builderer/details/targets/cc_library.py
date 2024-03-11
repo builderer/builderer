@@ -4,7 +4,7 @@ import shutil
 from collections import defaultdict
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Iterator, Tuple
+from typing import Iterator, Tuple, Optional
 
 from builderer.details.targets.target import BuildTarget
 
@@ -19,7 +19,7 @@ class CCLibrary(BuildTarget):
                  private_defines: list = [],
                  public_includes: list = [],
                  private_includes: list = [],
-                 output_path: str = None,
+                 output_path: Optional[str] = None,
                  **kwargs):
         super().__init__(**kwargs)
         self.hdrs = hdrs

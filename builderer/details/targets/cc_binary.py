@@ -1,4 +1,4 @@
-from typing import Iterator, Tuple
+from typing import Iterator, Tuple, Optional
 
 from builderer.details.targets.target import BuildTarget
 
@@ -11,7 +11,7 @@ class CCBinary(BuildTarget):
                  link_flags: list = [],
                  private_defines: list = [],
                  private_includes: list = [],
-                 output_path: str = None,
+                 output_path: Optional[str] = None,
                  **kwargs):
         super().__init__(**kwargs)
         self.srcs = srcs
