@@ -6,7 +6,7 @@ from graphlib import TopologicalSorter
 from importlib.machinery import SourceFileLoader
 from importlib.util import spec_from_loader, module_from_spec
 from pathlib import Path
-from typing import Union, Type, Iterator, Optional, Callable
+from typing import Dict, Union, Type, Iterator, Optional, Callable
 
 from builderer import Config
 from builderer.details.context import ConfigContext, RulesContext, BuildContext
@@ -111,7 +111,7 @@ class Workspace:
     # Configure the workspace to the given build profile, this includes
     # collapsing conditional fields, expanding variables, and filtering out
     # conditional targets...
-    def configure(self, config: Config, requested_targets: list[str] = []):
+    def configure(self, config: Config, filter_target_names: list[str] = []):
         # Empty out available configs once we set one
         self.configs = {}
         # Filter out conditional targets
@@ -126,13 +126,16 @@ class Workspace:
                     value=value,
                     permissive=isinstance(target, BuildTarget)
                 )
-        # Optionally filter graph based on requested targets
-        if requested_targets:
-            self._filter_by_requested_targets(requested_targets)
         # Filter out empty packages
         self._filter_empty_packages()
         # Initialize graph
         self._update_graph()
+        # Optionally filter graph based on requested targets
+        if filter_target_names:
+            self._filter_by_requested_targets([
+                self.find_target(n, None)
+                for n in filter_target_names
+            ])
         # Configure targets...
         for _,target in self._topological_sort():
             # Configure sandbox paths for required targets
@@ -163,15 +166,13 @@ class Workspace:
 
     def _expand_variables(self, config: Config, target: Target):
         # TODO: limit format visibility to direct dependencies
-        variables = {
+        variables: Dict[str, Union[str,PackageFormatHelper]] = {
             k: PackageFormatHelper(target.workspace_root, v)
             for k,v in self.packages.items()
         }
         if target.sandbox:
-            variables = {
-                **variables,
-                "__sandbox__": os.path.relpath(target.sandbox_root, target.workspace_root),
-            }
+            assert target.sandbox_root
+            variables["__sandbox__"] = os.path.relpath(target.sandbox_root, target.workspace_root)
         for key,value in target.__dict__.items():
             target.__dict__[key] = resolve_variables(
                 config=config,
@@ -179,9 +180,10 @@ class Workspace:
                 value=value
             )
 
-    def _filter_by_requested_targets(self, targets: list[str]):
+    def _filter_by_requested_targets(self, targets: list[tuple[Package,Target]]):
         allowed_targets = set(self._breadth_first(targets))
         self._filter_targets(lambda p,t: (p, t) in allowed_targets)
+        self._update_graph()
 
     def _filter_targets(self, condition: Callable):
         for pkg in self.packages.values():
