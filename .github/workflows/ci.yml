@@ -65,3 +65,74 @@ jobs:
         cd examples
         make -C Out/build/linux build -j$(nproc) CONFIG=debug
         make -C Out/build/linux build -j$(nproc) CONFIG=release
+
+  macOS:
+    runs-on: macos-13
+    steps:
+    - uses: webfactory/ssh-agent@v0.7.0
+      with:
+        ssh-private-key: ${{ secrets.CI_SSH_PRIVATE_KEY }}
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.9'
+    - name: Clone Builderer
+      uses: actions/checkout@v4
+      with:
+        path: builderer
+    - name: Clone Examples
+      uses: actions/checkout@v4
+      with:
+        repository: builderer/builderer-examples
+        ref: main
+        path: examples
+    - name: Install Builderer
+      run: |
+        python -m venv .venv
+        source .venv/bin/activate
+        pip install ./builderer
+    - name: Generate Build Files
+      run: |
+        source .venv/bin/activate
+        cd examples
+        builderer --config=macos generate
+    - name: Build Examples
+      run: |
+        cd examples
+        make -C Out/build/macos build -j$(sysctl -n hw.logicalcpu) CONFIG=debug
+        make -C Out/build/macos build -j$(sysctl -n hw.logicalcpu) CONFIG=release
+
+  Windows:
+    runs-on: windows-2022
+    steps:
+    - uses: webfactory/ssh-agent@v0.7.0
+      with:
+        ssh-private-key: ${{ secrets.CI_SSH_PRIVATE_KEY }}
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.9'
+    - name: Clone Builderer
+      uses: actions/checkout@v4
+      with:
+        path: builderer
+    - name: Clone Examples
+      uses: actions/checkout@v4
+      with:
+        repository: builderer/builderer-examples
+        ref: main
+        path: examples
+    - name: Install Builderer
+      run: |
+        python -m venv .venv
+        source .venv/bin/activate
+        pip install ./builderer
+    - name: Generate Build Files
+      run: |
+        source .venv/bin/activate
+        cd examples
+        builderer --config=windows generate
+    - name: Build Examples
+      run: |
+        cd examples
+        call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
+        msbuild Out\build\windows\Solution.sln /p:Platform=x64 /p:Configuration=debug
+        msbuild Out\build\windows\Solution.sln /p:Platform=x64 /p:Configuration=release
