@@ -7,7 +7,7 @@ from builderer.details.targets.cc_binary import CCBinary
 from builderer.details.targets.cc_library import CCLibrary
 from builderer.details.variable_expansion import resolve_conditionals
 from builderer.details.workspace import target_full_name
-from builderer.generators.make.utils import mk_target_build_path, phony_target_name, is_header_only_library, cc_library_output_path, cc_binary_output_path
+from builderer.generators.make.utils import mk_target_build_path, phony_target_name, is_header_only_library, cc_library_output_path, cc_binary_output_path, is_apple_platform
 
 CC_EXTS = {
     ".c",
@@ -152,12 +152,17 @@ class TargetMk:
             "\n",
         ])
 
+        if is_apple_platform(self.config.platform):
+            archflags = "-arch $(ARCH)"
+        else:
+            archflags = "-march=$(ARCH)"
+
         # compiler flags
         cflags = resolve_conditionals(config=self.config, value=self.target.c_flags)
         cxxflags = resolve_conditionals(config=self.config, value=self.target.cxx_flags)
         file.writelines([
-            f"{cflags_var}   := -arch $(ARCH) {' '.join(cflags)}\n",
-            f"{cxxflags_var} := -arch $(ARCH) {' '.join(cxxflags)}\n",
+            f"{cflags_var}   := {archflags} {' '.join(cflags)}\n",
+            f"{cxxflags_var} := {archflags} {' '.join(cxxflags)}\n",
             "\n",
         ])
 
@@ -167,7 +172,7 @@ class TargetMk:
                 *resolve_conditionals(config=self.config, value=self.target.link_flags),
             ]
             file.writelines([
-                f"{lflags_var}   := -arch $(ARCH) {' '.join(lflags)}\n",
+                f"{lflags_var}   := {archflags} {' '.join(lflags)}\n",
                 "\n",
             ])
 

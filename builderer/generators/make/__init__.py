@@ -11,7 +11,36 @@ from builderer.generators.make.utils import build_config_root, is_header_only_li
 
 SUPPORTED_TOOLCHAINS = ["clang","gcc"]
 SUPPORTED_PLATFORMS = ["linux","macos"]
-SUPPORTED_ARCHITECTURES = ["x86_64", "x86", "arm64"]
+SUPPORTED_ARCHITECTURES = {
+    "linux": [
+        "x86_64",
+        "x86",
+        # Arm list from: https://gcc.gnu.org/onlinedocs/gcc/AArch64-Options.html
+        "armv8-a",
+        "armv8.1-a",
+        "armv8.2-a",
+        "armv8.3-a",
+        "armv8.4-a",
+        "armv8.5-a",
+        "armv8.6-a",
+        "armv8.7-a",
+        "armv8.8-a",
+        "armv8.9-a",
+        "armv8-r",
+        "armv9-a",
+        "armv9.1-a",
+        "armv9.2-a",
+        "armv9.3-a",
+        "armv9.4-a",
+    ],
+    "macos": [
+        "x86_64",
+        "arm64",
+    ],
+    "ios": [
+        "arm64",
+    ],
+}
 
 def bake_config(config: Config, architecture: str, build_config: str):
     config = deepcopy(config)
@@ -28,8 +57,9 @@ class MakeGenerator:
             raise ValueError(f"unsupported toolchain {self.base_config.toolchain}")
         if self.base_config.platform not in SUPPORTED_PLATFORMS:
             raise ValueError(f"unsupported platform {self.base_config.platform}")
+        platform_archs = SUPPORTED_ARCHITECTURES[self.base_config.platform]
         for arch in str_iter(self.base_config.architecture):
-            if arch not in SUPPORTED_ARCHITECTURES:
+            if arch not in platform_archs:
                 raise ValueError(f"unsupported architecture {arch}")
 
     def __call__(self):
