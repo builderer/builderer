@@ -25,6 +25,36 @@ COMPILE_EXTS = {
     *CXX_EXTS,
 }
 
+# TODO: likely should be [toolchain][arch] instead...
+PLATFORM_ARCH_FLAGS = {
+    "linux": {
+        "x86-64":    "-m64 -march=x86-64",
+        "i386":      "-m32 -march=i386",
+        "i686":      "-m32 -march=i686",
+        # Arm list from: https://gcc.gnu.org/onlinedocs/gcc/AArch64-Options.html
+        "armv8-a":   "-m64 -march=armv8-a",
+        "armv8.1-a": "-m64 -march=armv8.1-a",
+        "armv8.2-a": "-m64 -march=armv8.2-a",
+        "armv8.3-a": "-m64 -march=armv8.3-a",
+        "armv8.4-a": "-m64 -march=armv8.4-a",
+        "armv8.5-a": "-m64 -march=armv8.5-a",
+        "armv8.6-a": "-m64 -march=armv8.6-a",
+        "armv8.7-a": "-m64 -march=armv8.7-a",
+        "armv8.8-a": "-m64 -march=armv8.8-a",
+        "armv8.9-a": "-m64 -march=armv8.9-a",
+        "armv8-r":   "-m64 -march=armv8-r",
+        "armv9-a":   "-m64 -march=armv9-a",
+        "armv9.1-a": "-m64 -march=armv9.1-a",
+        "armv9.2-a": "-m64 -march=armv9.2-a",
+        "armv9.3-a": "-m64 -march=armv9.3-a",
+        "armv9.4-a": "-m64 -march=armv9.4-a",
+    },
+    "macos": {
+        "x86_64": "-arch x86_64",
+        "arm64":  "-arch arm64",
+    },
+}
+
 class TargetMk:
     def __init__(self, config, workspace, build_root, package, target):
         self.config = config
@@ -152,10 +182,8 @@ class TargetMk:
             "\n",
         ])
 
-        if is_apple_platform(self.config.platform):
-            archflags = "-arch $(ARCH)"
-        else:
-            archflags = "-march=$(ARCH)"
+        # get architecture-specific compiler and linker flags...
+        archflags = PLATFORM_ARCH_FLAGS[self.config.platform][self.config.architecture]
 
         # compiler flags
         cflags = resolve_conditionals(config=self.config, value=self.target.c_flags)
