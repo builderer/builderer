@@ -13,8 +13,9 @@ SUPPORTED_TOOLCHAINS = ["clang","gcc"]
 SUPPORTED_PLATFORMS = ["linux","macos"]
 SUPPORTED_ARCHITECTURES = {
     "linux": [
-        "x86_64",
-        "x86",
+        "x86-64",
+        "i386",
+        "i686",
         # Arm list from: https://gcc.gnu.org/onlinedocs/gcc/AArch64-Options.html
         "armv8-a",
         "armv8.1-a",
@@ -35,9 +36,6 @@ SUPPORTED_ARCHITECTURES = {
     ],
     "macos": [
         "x86_64",
-        "arm64",
-    ],
-    "ios": [
         "arm64",
     ],
 }
