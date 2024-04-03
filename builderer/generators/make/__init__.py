@@ -11,7 +11,7 @@ from builderer.generators.make.utils import build_config_root, is_header_only_li
 
 SUPPORTED_TOOLCHAINS = ["clang","gcc"]
 SUPPORTED_PLATFORMS = ["linux","macos"]
-SUPPORTED_ARCHITECTURES = ["x86_64", "x86"]
+SUPPORTED_ARCHITECTURES = ["x86_64", "x86", "arm64"]
 
 def bake_config(config: Config, architecture: str, build_config: str):
     config = deepcopy(config)

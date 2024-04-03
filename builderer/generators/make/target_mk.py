@@ -156,8 +156,8 @@ class TargetMk:
         cflags = resolve_conditionals(config=self.config, value=self.target.c_flags)
         cxxflags = resolve_conditionals(config=self.config, value=self.target.cxx_flags)
         file.writelines([
-            f"{cflags_var}   := {' '.join(cflags)}\n",
-            f"{cxxflags_var} := {' '.join(cxxflags)}\n",
+            f"{cflags_var}   := -arch $(ARCH) {' '.join(cflags)}\n",
+            f"{cxxflags_var} := -arch $(ARCH) {' '.join(cxxflags)}\n",
             "\n",
         ])
 
@@ -167,7 +167,7 @@ class TargetMk:
                 *resolve_conditionals(config=self.config, value=self.target.link_flags),
             ]
             file.writelines([
-                f"{lflags_var}   := {' '.join(lflags)}\n",
+                f"{lflags_var}   := -arch $(ARCH) {' '.join(lflags)}\n",
                 "\n",
             ])
 
