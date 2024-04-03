@@ -77,7 +77,7 @@ jobs:
         ssh-private-key: ${{ secrets.CI_SSH_PRIVATE_KEY }}
     - uses: actions/setup-python@v5
       with:
-        python-version: '3.9'
+        python-version: '3.11'
     - name: Clone Builderer
       uses: actions/checkout@v4
       with:
