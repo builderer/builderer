@@ -9,7 +9,7 @@ from builderer.generators.msbuild.solution import MsBuildSolution
 
 SUPPORTED_TOOLCHAINS = ["msvc"]
 SUPPORTED_PLATFORMS = ["windows"]
-SUPPORTED_ARCHITECTURES = ["x64", "Win32"]
+SUPPORTED_ARCHITECTURES = ["x64", "Win32", "ARM64"]
 
 class MsBuildGenerator:
     def __init__(self, config: Config, workspace: Workspace):

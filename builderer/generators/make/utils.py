@@ -18,6 +18,13 @@ def is_header_only_library(target):
     else:
         return False
 
+def is_apple_platform(platform_name: str):
+    APPLE_PLATFORMS = {
+        "macos",
+        "ios",
+    }
+    return platform_name in APPLE_PLATFORMS
+
 def cc_library_output_path(config, package, target):
     assert not is_header_only_library(target)
     output_path = resolve_conditionals(config=config, value=target.output_path)
