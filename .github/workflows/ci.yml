@@ -11,16 +11,19 @@ on:
 jobs:
   MyPy:
     runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        python-version: ["pypy3.9", "pypy3.10", "3.9", "3.10", "3.11", "3.12"]
     steps:
     - uses: webfactory/ssh-agent@v0.7.0
       with:
         ssh-private-key: ${{ secrets.CI_SSH_PRIVATE_KEY }}
-    - uses: actions/setup-python@v5
+    - name: Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
       with:
-        python-version: '3.9'
+        python-version: ${{ matrix.python-version }}
     - name: Install MyPy
-      run: |
-        pip install mypy black
+      run: pip install mypy black
     - name: Clone Builderer
       uses: actions/checkout@v4
     - name: MyPy
@@ -30,13 +33,17 @@ jobs:
 
   Linux:
     runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        python-version: ["pypy3.9", "pypy3.10", "3.9", "3.10", "3.11", "3.12"]
     steps:
     - uses: webfactory/ssh-agent@v0.7.0
       with:
         ssh-private-key: ${{ secrets.CI_SSH_PRIVATE_KEY }}
-    - uses: actions/setup-python@v5
+    - name: Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
       with:
-        python-version: '3.9'
+        python-version: ${{ matrix.python-version }}
     - name: Install Build Tools
       run: |
         sudo apt update
