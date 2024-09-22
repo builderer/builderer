@@ -18,12 +18,13 @@ from builderer.config import Config
 #     ]
 # )
 
+
 class Condition:
     def __init__(self, **kwargs):
         self.__dict__.update(kwargs)
 
     def can_expand(self, config: Config):
-        for k,v in self.__dict__.items():
+        for k, v in self.__dict__.items():
             if k not in config.__dict__:
                 continue
             if isinstance(config.__dict__[k], list):
@@ -31,7 +32,7 @@ class Condition:
         return True
 
     def __call__(self, config: Config):
-        for k,v in self.__dict__.items():
+        for k, v in self.__dict__.items():
             if k not in config.__dict__:
                 return False
             if isinstance(config.__dict__[k], list):
@@ -44,14 +45,17 @@ class Condition:
                     return False
         return True
 
+
 class Case:
     def __init__(self, condition: Condition, *value: str):
         self.condition = condition
         self.values = [*value]
 
+
 class ConditionalValue:
     def __call__(self, config: Config, permissive: bool = False):
         raise RuntimeError(f"{type(self)} must implement __call__")
+
 
 class Optional(ConditionalValue):
     def __init__(self, condition: Condition, *value: str):
@@ -64,6 +68,7 @@ class Optional(ConditionalValue):
         elif self.condition(config):
             for value in self.values:
                 yield value
+
 
 class Switch(ConditionalValue):
     def __init__(self, *cases: Case):

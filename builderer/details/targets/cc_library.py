@@ -8,19 +8,22 @@ from typing import Iterator, Tuple, Optional
 
 from builderer.details.targets.target import BuildTarget
 
+
 class CCLibrary(BuildTarget):
-    def __init__(self,
-                 *,
-                 hdrs: list = [],
-                 srcs: list = [],
-                 c_flags: list = [],
-                 cxx_flags: list = [],
-                 public_defines: list = [],
-                 private_defines: list = [],
-                 public_includes: list = [],
-                 private_includes: list = [],
-                 output_path: Optional[str] = None,
-                 **kwargs):
+    def __init__(
+        self,
+        *,
+        hdrs: list = [],
+        srcs: list = [],
+        c_flags: list = [],
+        cxx_flags: list = [],
+        public_defines: list = [],
+        private_defines: list = [],
+        public_includes: list = [],
+        private_includes: list = [],
+        output_path: Optional[str] = None,
+        **kwargs,
+    ):
         super().__init__(**kwargs)
         self.hdrs = hdrs
         self.srcs = srcs
@@ -32,25 +35,24 @@ class CCLibrary(BuildTarget):
         self.private_includes = private_includes
         self.output_path = output_path
 
-    def get_file_path_fields(self) -> Iterator[Tuple[str,list]]:
+    def get_file_path_fields(self) -> Iterator[Tuple[str, list]]:
         if self.hdrs:
-            yield "public",self.hdrs
+            yield "public", self.hdrs
         if self.srcs:
-            yield "source",self.srcs
-    
-    def get_dir_path_fields(self) -> Iterator[Tuple[str,list]]:
+            yield "source", self.srcs
+
+    def get_dir_path_fields(self) -> Iterator[Tuple[str, list]]:
         if self.public_includes:
-            yield "public",self.public_includes
+            yield "public", self.public_includes
         if self.private_includes:
-            yield "private",self.private_includes
+            yield "private", self.private_includes
 
     def do_pre_build(self):
         assert self.sandbox_root
+
         def get_relative_paths(files, root):
-            return [
-                os.path.relpath(f, root)
-                for f in files
-            ]
+            return [os.path.relpath(f, root) for f in files]
+
         # Compute common paths for each path group...
         group_paths = defaultdict(list)
         for group, paths in self.get_file_path_fields():
@@ -59,7 +61,7 @@ class CCLibrary(BuildTarget):
             group_paths[group].extend([Path(p) for p in paths])
         group_roots = {
             group: Path(os.path.commonpath(paths)).resolve()
-            for group,paths in group_paths.items()
+            for group, paths in group_paths.items()
         }
         # Install sandbox if it doesn't already exist...
         # TODO: we should also check to see if any dependencies have changed (e.g. if repo changed we need to update sandbox)

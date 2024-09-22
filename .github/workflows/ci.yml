@@ -20,15 +20,13 @@ jobs:
         python-version: '3.9'
     - name: Install MyPy
       run: |
-        pip install mypy
+        pip install mypy black
     - name: Clone Builderer
       uses: actions/checkout@v4
-      with:
-        path: builderer
-    - name: MyPy Builderer
-      run: |
-        cd builderer
-        mypy builderer
+    - name: MyPy
+      run: mypy builderer
+    - name: Formatting
+      run: black --check .
 
   Linux:
     runs-on: ubuntu-22.04

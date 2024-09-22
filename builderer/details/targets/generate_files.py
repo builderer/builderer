@@ -3,13 +3,12 @@ from subprocess import check_call
 
 from builderer.details.targets.target import PreBuildTarget
 
+
 class GenerateFiles(PreBuildTarget):
-    def __init__(self,
-                 args: list,
-                 **kwargs):
+    def __init__(self, args: list, **kwargs):
         super().__init__(**kwargs)
         self.args = args
-    
+
     def do_pre_build(self):
         assert self.sandbox_root
         sandbox_root = Path(self.sandbox_root)

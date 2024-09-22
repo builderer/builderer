@@ -5,12 +5,9 @@ from tempfile import TemporaryDirectory
 
 from builderer.details.targets.target import RepositoryTarget
 
+
 class GitRepository(RepositoryTarget):
-    def __init__(self,
-                 *,
-                 remote: str,
-                 sha: str,
-                 **kwargs):
+    def __init__(self, *, remote: str, sha: str, **kwargs):
         super().__init__(**kwargs)
         self.remote = remote
         self.sha = sha
@@ -24,20 +21,12 @@ class GitRepository(RepositoryTarget):
         target_sandbox.parent.mkdir(parents=True, exist_ok=True)
         with TemporaryDirectory(dir=str(target_sandbox.parent)) as tmp:
             print(f"cloning {self.remote}")
+            subprocess.check_call(["git", "init", "--quiet"], cwd=tmp)
             subprocess.check_call(
-                ["git", "init", "--quiet"],
-                cwd=tmp
+                ["git", "remote", "add", "origin", self.remote], cwd=tmp
             )
             subprocess.check_call(
-                ["git", "remote", "add", "origin", self.remote],
-                cwd=tmp
+                ["git", "fetch", "--quiet", "--depth", "1", "origin", self.sha], cwd=tmp
             )
-            subprocess.check_call(
-                ["git", "fetch", "--quiet", "--depth", "1", "origin", self.sha],
-                cwd=tmp
-            )
-            subprocess.check_call(
-                ["git", "checkout", "--quiet", "FETCH_HEAD"],
-                cwd=tmp
-            )
+            subprocess.check_call(["git", "checkout", "--quiet", "FETCH_HEAD"], cwd=tmp)
             Path(tmp).rename(target_sandbox)
