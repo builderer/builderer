@@ -10,10 +10,10 @@ on:
 
 jobs:
   MyPy:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["pypy3.9", "pypy3.10", "3.9", "3.10", "3.11", "3.12"]
+        python-version: ["3.9", "3.10", "3.11", "3.12"]
     steps:
     - uses: webfactory/ssh-agent@v0.7.0
       with:
@@ -32,7 +32,7 @@ jobs:
       run: black --check .
 
   Linux:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     strategy:
       matrix:
         python-version: ["pypy3.9", "pypy3.10", "3.9", "3.10", "3.11", "3.12"]
@@ -75,7 +75,7 @@ jobs:
         make -C Out/build/linux build -j$(nproc) CONFIG=release
 
   macOS:
-    runs-on: macos-14
+    runs-on: macos-latest
     steps:
     - uses: webfactory/ssh-agent@v0.7.0
       with:
@@ -110,7 +110,7 @@ jobs:
         make -C Out/build/macos build -j$(sysctl -n hw.logicalcpu) CONFIG=release ARCH=arm64
 
   Windows:
-    runs-on: windows-2022
+    runs-on: windows-latest
     steps:
     - uses: webfactory/ssh-agent@v0.7.0
       with:
