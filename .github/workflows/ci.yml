@@ -24,7 +24,7 @@ jobs:
     - name: Clone Builderer
       uses: actions/checkout@v4
     - name: MyPy
-      run: mypy builderer
+      run: mypy builderer --check-untyped-defs
     - name: Formatting
       run: black --check .
 

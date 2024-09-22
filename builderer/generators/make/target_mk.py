@@ -122,7 +122,7 @@ class TargetMk:
         ]
 
         # sort dependencies
-        sorter = TopologicalSorter()
+        sorter: TopologicalSorter = TopologicalSorter()
         for p, t in all_dependencies:
             sorter.add(
                 target_full_name(p, t),
@@ -133,11 +133,13 @@ class TargetMk:
                     )
                 ],
             )
-        all_dependencies = reversed(
-            [
-                self.workspace.find_target(name=dep, outer=self.package)
-                for dep in sorter.static_order()
-            ]
+        all_dependencies = list(
+            reversed(
+                [
+                    self.workspace.find_target(name=dep, outer=self.package)
+                    for dep in sorter.static_order()
+                ]
+            )
         )
 
         # filter dependencies...
