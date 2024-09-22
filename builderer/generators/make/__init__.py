@@ -9,8 +9,8 @@ from builderer.generators.make.root_makefile import RootMakefile
 from builderer.generators.make.target_mk import TargetMk
 from builderer.generators.make.utils import build_config_root, is_header_only_library
 
-SUPPORTED_TOOLCHAINS = ["clang","gcc"]
-SUPPORTED_PLATFORMS = ["linux","macos"]
+SUPPORTED_TOOLCHAINS = ["clang", "gcc"]
+SUPPORTED_PLATFORMS = ["linux", "macos"]
 SUPPORTED_ARCHITECTURES = {
     "linux": [
         "x86-64",
@@ -40,11 +40,13 @@ SUPPORTED_ARCHITECTURES = {
     ],
 }
 
+
 def bake_config(config: Config, architecture: str, build_config: str):
     config = deepcopy(config)
     config.architecture = architecture
     config.build_config = build_config
     return config
+
 
 class MakeGenerator:
     def __init__(self, config: Config, workspace: Workspace):
@@ -69,17 +71,22 @@ class MakeGenerator:
             for c in str_iter(self.base_config.build_config)
         ]
         for config in configs:
-            mk_root = Path(build_config_root(config.build_root, config.architecture, config.build_config))
+            mk_root = Path(
+                build_config_root(
+                    config.build_root, config.architecture, config.build_config
+                )
+            )
             target_mks = [
                 TargetMk(
                     config=config,
                     workspace=self.workspace,
                     build_root=mk_root,
                     package=package,
-                    target=target
+                    target=target,
                 )
-                for package,target in self.workspace.targets
-                if isinstance(target, BuildTarget) and not is_header_only_library(target)
+                for package, target in self.workspace.targets
+                if isinstance(target, BuildTarget)
+                and not is_header_only_library(target)
             ]
             for mk in target_mks:
                 mk()

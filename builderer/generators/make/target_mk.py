@@ -7,7 +7,14 @@ from builderer.details.targets.cc_binary import CCBinary
 from builderer.details.targets.cc_library import CCLibrary
 from builderer.details.variable_expansion import resolve_conditionals
 from builderer.details.workspace import target_full_name
-from builderer.generators.make.utils import mk_target_build_path, phony_target_name, is_header_only_library, cc_library_output_path, cc_binary_output_path, is_apple_platform
+from builderer.generators.make.utils import (
+    mk_target_build_path,
+    phony_target_name,
+    is_header_only_library,
+    cc_library_output_path,
+    cc_binary_output_path,
+    is_apple_platform,
+)
 
 CC_EXTS = {
     ".c",
@@ -28,11 +35,11 @@ COMPILE_EXTS = {
 # TODO: likely should be [toolchain][arch] instead...
 PLATFORM_ARCH_FLAGS = {
     "linux": {
-        "x86-64":    "-m64 -march=x86-64",
-        "i386":      "-m32 -march=i386",
-        "i686":      "-m32 -march=i686",
+        "x86-64": "-m64 -march=x86-64",
+        "i386": "-m32 -march=i386",
+        "i686": "-m32 -march=i686",
         # Arm list from: https://gcc.gnu.org/onlinedocs/gcc/AArch64-Options.html
-        "armv8-a":   "-march=armv8-a",
+        "armv8-a": "-march=armv8-a",
         "armv8.1-a": "-march=armv8.1-a",
         "armv8.2-a": "-march=armv8.2-a",
         "armv8.3-a": "-march=armv8.3-a",
@@ -42,8 +49,8 @@ PLATFORM_ARCH_FLAGS = {
         "armv8.7-a": "-march=armv8.7-a",
         "armv8.8-a": "-march=armv8.8-a",
         "armv8.9-a": "-march=armv8.9-a",
-        "armv8-r":   "-march=armv8-r",
-        "armv9-a":   "-march=armv9-a",
+        "armv8-r": "-march=armv8-r",
+        "armv9-a": "-march=armv9-a",
         "armv9.1-a": "-march=armv9.1-a",
         "armv9.2-a": "-march=armv9.2-a",
         "armv9.3-a": "-march=armv9.3-a",
@@ -51,9 +58,10 @@ PLATFORM_ARCH_FLAGS = {
     },
     "macos": {
         "x86_64": "-arch x86_64",
-        "arm64":  "-arch arm64",
+        "arm64": "-arch arm64",
     },
 }
+
 
 class TargetMk:
     def __init__(self, config, workspace, build_root, package, target):
@@ -61,11 +69,13 @@ class TargetMk:
         self.workspace = workspace
         self.package = package
         self.target = target
-        self.path = build_root.joinpath(mk_target_build_path(package=package, target=target))
+        self.path = build_root.joinpath(
+            mk_target_build_path(package=package, target=target)
+        )
 
     @property
     def phony(self):
-         return phony_target_name(package=self.package, target=self.target)
+        return phony_target_name(package=self.package, target=self.target)
 
     @property
     def requires_linking(self):
@@ -74,11 +84,15 @@ class TargetMk:
     @property
     def out_path(self):
         if isinstance(self.target, CCLibrary):
-            return cc_library_output_path(config=self.config, package=self.package, target=self.target)
+            return cc_library_output_path(
+                config=self.config, package=self.package, target=self.target
+            )
         elif isinstance(self.target, CCBinary):
-            return cc_binary_output_path(config=self.config, package=self.package, target=self.target)
+            return cc_binary_output_path(
+                config=self.config, package=self.package, target=self.target
+            )
         else:
-             raise RuntimeError(f"unknown target type {type(self.target)}")
+            raise RuntimeError(f"unknown target type {type(self.target)}")
 
     def var_name(self, prefix: str):
         return f"{prefix}__{self.package.name.replace('/','_')}__{self.target.name}"
@@ -87,7 +101,7 @@ class TargetMk:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with open(self.path, "w") as file:
             self._write_makefile(file)
-    
+
     def _write_makefile(self, file):
         # pick some variable names...
         includes_var = self.var_name("INCLUDES")
@@ -101,86 +115,126 @@ class TargetMk:
 
         # entire dependency tree
         all_dependencies = [
-            (p,t)
-            for p,t in self.workspace.all_dependencies(package=self.package, target=self.target)
+            (p, t)
+            for p, t in self.workspace.all_dependencies(
+                package=self.package, target=self.target
+            )
         ]
 
         # sort dependencies
-        sorter = TopologicalSorter()
-        for p,t in all_dependencies:
-            sorter.add(target_full_name(p,t), *[
-                target_full_name(dp,dt)
-                for dp,dt in self.workspace.direct_dependencies(package=p,target=t)
-            ])
-        all_dependencies = reversed([
-            self.workspace.find_target(name=dep, outer=self.package)
-            for dep in sorter.static_order()
-        ])
+        sorter: TopologicalSorter = TopologicalSorter()
+        for p, t in all_dependencies:
+            sorter.add(
+                target_full_name(p, t),
+                *[
+                    target_full_name(dp, dt)
+                    for dp, dt in self.workspace.direct_dependencies(
+                        package=p, target=t
+                    )
+                ],
+            )
+        all_dependencies = list(
+            reversed(
+                [
+                    self.workspace.find_target(name=dep, outer=self.package)
+                    for dep in sorter.static_order()
+                ]
+            )
+        )
 
         # filter dependencies...
         all_dependencies = [
-            (p,t)
-            for p,t in all_dependencies
-            if isinstance(t, CCLibrary)
+            (p, t) for p, t in all_dependencies if isinstance(t, CCLibrary)
         ]
 
         # header
-        file.writelines([
-            f"# Generated by Builderer\n",
-            "\n",
-        ])
+        file.writelines(
+            [
+                f"# Generated by Builderer\n",
+                "\n",
+            ]
+        )
 
         # Phony package/target name
-        file.writelines([
-            f"{self.phony}: {self.out_path}\n",
-            "\n",
-        ])
+        file.writelines(
+            [
+                f"{self.phony}: {self.out_path}\n",
+                "\n",
+            ]
+        )
 
         # source files
-        file.writelines([
-             f"{srcs_var} :=",
-             *[
-                f" \\\n  {Path(os.path.relpath(src, self.workspace.root)).as_posix()}"
-                for src in resolve_conditionals(config=self.config, value=self.target.srcs)
-                if os.path.splitext(src)[-1] in COMPILE_EXTS
-             ],
-             "\n\n",
-        ])
+        file.writelines(
+            [
+                f"{srcs_var} :=",
+                *[
+                    f" \\\n  {Path(os.path.relpath(src, self.workspace.root)).as_posix()}"
+                    for src in resolve_conditionals(
+                        config=self.config, value=self.target.srcs
+                    )
+                    if os.path.splitext(src)[-1] in COMPILE_EXTS
+                ],
+                "\n\n",
+            ]
+        )
 
         # private includes
-        includes = list(resolve_conditionals(config=self.config, value=self.target.private_includes))
+        includes = list(
+            resolve_conditionals(config=self.config, value=self.target.private_includes)
+        )
         # public includes
         if isinstance(self.target, CCLibrary):
-            includes.extend(resolve_conditionals(config=self.config, value=self.target.public_includes))
+            includes.extend(
+                resolve_conditionals(
+                    config=self.config, value=self.target.public_includes
+                )
+            )
         # dependency includes
-        includes.extend([
-            i
-            for _,dep_t in all_dependencies
-            for i in resolve_conditionals(config=self.config, value=dep_t.public_includes)
-        ])
-        file.writelines([
-             f"{includes_var} :=",
-             *[
-                f" \\\n  {i}"
-                for i in includes
-             ],
-             "\n\n",
-        ])
+        includes.extend(
+            [
+                i
+                for _, dep_t in all_dependencies
+                for i in resolve_conditionals(
+                    config=self.config, value=dep_t.public_includes
+                )
+            ]
+        )
+        file.writelines(
+            [
+                f"{includes_var} :=",
+                *[f" \\\n  {i}" for i in includes],
+                "\n\n",
+            ]
+        )
 
         # preprocessor defines
-        defines = [*resolve_conditionals(config=self.config, value=self.target.private_defines)]
+        defines = [
+            *resolve_conditionals(config=self.config, value=self.target.private_defines)
+        ]
         if isinstance(self.target, CCLibrary):
-            defines.extend(resolve_conditionals(config=self.config, value=self.target.public_defines))
-        defines.extend([
-            define
-            for _,dep_target in self.workspace.all_dependencies(self.package, self.target)
-            if isinstance(dep_target, CCLibrary)
-            for define in resolve_conditionals(config=self.config, value=dep_target.public_defines)
-        ])
-        file.writelines([
-            f"{defines_var} := {' '.join(defines)}\n",
-            "\n",
-        ])
+            defines.extend(
+                resolve_conditionals(
+                    config=self.config, value=self.target.public_defines
+                )
+            )
+        defines.extend(
+            [
+                define
+                for _, dep_target in self.workspace.all_dependencies(
+                    self.package, self.target
+                )
+                if isinstance(dep_target, CCLibrary)
+                for define in resolve_conditionals(
+                    config=self.config, value=dep_target.public_defines
+                )
+            ]
+        )
+        file.writelines(
+            [
+                f"{defines_var} := {' '.join(defines)}\n",
+                "\n",
+            ]
+        )
 
         # get architecture-specific compiler and linker flags...
         archflags = PLATFORM_ARCH_FLAGS[self.config.platform][self.config.architecture]
@@ -188,78 +242,92 @@ class TargetMk:
         # compiler flags
         cflags = resolve_conditionals(config=self.config, value=self.target.c_flags)
         cxxflags = resolve_conditionals(config=self.config, value=self.target.cxx_flags)
-        file.writelines([
-            f"{cflags_var}   := {archflags} {' '.join(cflags)}\n",
-            f"{cxxflags_var} := {archflags} {' '.join(cxxflags)}\n",
-            "\n",
-        ])
+        file.writelines(
+            [
+                f"{cflags_var}   := {archflags} {' '.join(cflags)}\n",
+                f"{cxxflags_var} := {archflags} {' '.join(cxxflags)}\n",
+                "\n",
+            ]
+        )
 
         # linker flags
         if self.requires_linking:
             lflags = [
                 *resolve_conditionals(config=self.config, value=self.target.link_flags),
             ]
-            file.writelines([
-                f"{lflags_var}   := {archflags} {' '.join(lflags)}\n",
-                "\n",
-            ])
+            file.writelines(
+                [
+                    f"{lflags_var}   := {archflags} {' '.join(lflags)}\n",
+                    "\n",
+                ]
+            )
 
         # object/dependency files
-        file.writelines([
-             f"{objs_var} := $(patsubst %,$(OBJS_ROOT)/%.o,$({srcs_var}))\n",
-             f"{deps_var} := $(addsuffix .d,$({objs_var}))\n",
-             "\n",
-        ])
+        file.writelines(
+            [
+                f"{objs_var} := $(patsubst %,$(OBJS_ROOT)/%.o,$({srcs_var}))\n",
+                f"{deps_var} := $(addsuffix .d,$({objs_var}))\n",
+                "\n",
+            ]
+        )
 
         # Include deps files if available
-        file.writelines([
-             f"-include $({deps_var})\n",
-             "\n",
-        ])
+        file.writelines(
+            [
+                f"-include $({deps_var})\n",
+                "\n",
+            ]
+        )
 
         # output target...
         if isinstance(self.target, CCLibrary):
-            file.writelines([
-                f"{self.out_path}: $({objs_var})\n",
-                f"\t@$(ECHO) Archiving $@\n"
-                f"\t@$(MKDIR) $(dir $@)\n",
-                f"\t@$(RM) $@\n",
-                f"\t@$(AR) Scq $@ $^\n",
-                f"\t@$(RANLIB) $@\n",
-                "\n",
-            ])
+            file.writelines(
+                [
+                    f"{self.out_path}: $({objs_var})\n",
+                    f"\t@$(ECHO) Archiving $@\n" f"\t@$(MKDIR) $(dir $@)\n",
+                    f"\t@$(RM) $@\n",
+                    f"\t@$(AR) Scq $@ $^\n",
+                    f"\t@$(RANLIB) $@\n",
+                    "\n",
+                ]
+            )
         elif isinstance(self.target, CCBinary):
             dep_libs = [
                 cc_library_output_path(config=self.config, package=dep_p, target=dep_t)
                 for dep_p, dep_t in all_dependencies
                 if not is_header_only_library(dep_t)
             ]
-            file.writelines([
-                f"{self.out_path}: $({objs_var}) {' '.join(dep_libs)}\n",
-                f"\t@$(ECHO) Linking $@\n"
-                f"\t@$(MKDIR) $(dir $@)\n",
-                f"\t@$(CCLD) $^ $({lflags_var}) -o $@\n",
-                "\n",
-            ])
+            file.writelines(
+                [
+                    f"{self.out_path}: $({objs_var}) {' '.join(dep_libs)}\n",
+                    f"\t@$(ECHO) Linking $@\n" f"\t@$(MKDIR) $(dir $@)\n",
+                    f"\t@$(CCLD) $^ $({lflags_var}) -o $@\n",
+                    "\n",
+                ]
+            )
         else:
             raise RuntimeError(f"unknown target type {type(self.target)}")
 
         # .c rule
         for ext in CC_EXTS:
-            file.writelines([
-                f"$(filter %{ext}.o,$({objs_var})): $(OBJS_ROOT)/%.o: $(WORKSPACE_ROOT)/%\n",
-                f"\t@$(ECHO) Compiling $(notdir $<)\n",
-                f"\t@$(MKDIR) $(dir $@)\n",
-                f"\t@$(CC) -MT $@ -MMD -MP -MF $@.d $({cflags_var}) $(addprefix -I$(WORKSPACE_ROOT)/,$({includes_var})) $(addprefix -D,$({defines_var})) -c $< -o $@\n",
-                "\n",
-            ])
+            file.writelines(
+                [
+                    f"$(filter %{ext}.o,$({objs_var})): $(OBJS_ROOT)/%.o: $(WORKSPACE_ROOT)/%\n",
+                    f"\t@$(ECHO) Compiling $(notdir $<)\n",
+                    f"\t@$(MKDIR) $(dir $@)\n",
+                    f"\t@$(CC) -MT $@ -MMD -MP -MF $@.d $({cflags_var}) $(addprefix -I$(WORKSPACE_ROOT)/,$({includes_var})) $(addprefix -D,$({defines_var})) -c $< -o $@\n",
+                    "\n",
+                ]
+            )
 
         # .cpp rule
         for ext in CXX_EXTS:
-            file.writelines([
-                f"$(filter %{ext}.o,$({objs_var})): $(OBJS_ROOT)/%.o: $(WORKSPACE_ROOT)/%\n",
-                f"\t@$(ECHO) Compiling $(notdir $<)\n",
-                f"\t@$(MKDIR) $(dir $@)\n",
-                f"\t@$(CXX) -MT $@ -MMD -MP -MF $@.d $({cxxflags_var}) $(addprefix -I$(WORKSPACE_ROOT)/,$({includes_var})) $(addprefix -D,$({defines_var})) -c $< -o $@\n",
-                "\n",
-            ])
+            file.writelines(
+                [
+                    f"$(filter %{ext}.o,$({objs_var})): $(OBJS_ROOT)/%.o: $(WORKSPACE_ROOT)/%\n",
+                    f"\t@$(ECHO) Compiling $(notdir $<)\n",
+                    f"\t@$(MKDIR) $(dir $@)\n",
+                    f"\t@$(CXX) -MT $@ -MMD -MP -MF $@.d $({cxxflags_var}) $(addprefix -I$(WORKSPACE_ROOT)/,$({includes_var})) $(addprefix -D,$({defines_var})) -c $< -o $@\n",
+                    "\n",
+                ]
+            )

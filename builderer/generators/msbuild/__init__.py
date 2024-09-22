@@ -11,6 +11,7 @@ SUPPORTED_TOOLCHAINS = ["msvc"]
 SUPPORTED_PLATFORMS = ["windows"]
 SUPPORTED_ARCHITECTURES = ["x64", "Win32", "ARM64"]
 
+
 class MsBuildGenerator:
     def __init__(self, config: Config, workspace: Workspace):
         self.config = config
@@ -24,7 +25,6 @@ class MsBuildGenerator:
             if arch not in SUPPORTED_ARCHITECTURES:
                 raise ValueError(f"unsupported architecture {arch}")
 
-    
     def __call__(self):
         projects = {
             target_full_name(pkg, target): MsBuildProject(
@@ -40,8 +40,6 @@ class MsBuildGenerator:
         for project in projects.values():
             project()
         solution = MsBuildSolution(
-            config=self.config,
-            workspace=self.workspace,
-            projects=projects
+            config=self.config, workspace=self.workspace, projects=projects
         )
         solution()
