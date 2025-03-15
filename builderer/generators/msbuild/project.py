@@ -11,7 +11,7 @@ from builderer.details.package import Package
 from builderer.details.targets.cc_binary import CCBinary
 from builderer.details.targets.cc_library import CCLibrary
 from builderer.details.targets.target import BuildTarget
-from builderer.details.variable_expansion import resolve_conditionals
+from builderer.details.variable_expansion import resolve_conditionals, bake_config
 from builderer.details.workspace import Workspace
 from builderer.generators.msbuild.utils import as_msft_path, make_guid, msvc_file_rule
 
@@ -80,13 +80,6 @@ def get_vcxproj_path(config: Config, target: BuildTarget):
 
 def get_filters_path(config: Config, target: BuildTarget):
     return get_project_root(config, target).joinpath(f"{target.name}.vcxproj.filters")
-
-
-def bake_config(config: Config, architecture: str, build_config: str):
-    config = deepcopy(config)
-    config.architecture = architecture
-    config.build_config = build_config
-    return config
 
 
 def unique_list(l: list):
