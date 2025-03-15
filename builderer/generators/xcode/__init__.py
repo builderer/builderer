@@ -4,6 +4,7 @@ from builderer.details.targets.target import BuildTarget
 from builderer.details.workspace import Workspace
 from builderer.generators.xcode.model_builder import create_xcode_project
 from builderer.generators.xcode.formatter import format_xcode_project
+from builderer.generators.xcode.validator import validate_references
 
 class XcodeGenerator:
     """Generator for Xcode projects."""
@@ -23,6 +24,11 @@ class XcodeGenerator:
                     package=package,
                     target=target
                 )
+                
+                # Validate the Xcode project model
+                errors = validate_references(xcode_project)
+                if errors:
+                    raise ValueError(f"Validation errors in Xcode project: {errors}")
                 
                 # Format the project model to a string using the new formatter
                 project_str = format_xcode_project(xcode_project)
