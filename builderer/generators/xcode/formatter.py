@@ -8,7 +8,7 @@ approach to format the data structures without making assumptions about specific
 
 import dataclasses
 import enum
-from typing import Dict, List, Set, Union, Optional, TypeVar, cast, NewType, Type
+from typing import Dict, List, Set, Union, Optional, TypeVar, cast, Type
 
 from builderer.generators.xcode.model import (
     XcodeObject, XcodeProject, PBXProject, Reference,
@@ -37,16 +37,19 @@ def format_xcode_project(project: XcodeProject) -> str:
     result = "// !$*UTF8*$!\n"
     
     # Create the project dict structure
-    project_dict: Dict[str, Union[int, dict, str]] = {
+    project_dict: Dict[str, Union[int, dict, str, Reference]] = {
         "archiveVersion": 1,
         "classes": {},
         "objectVersion": 56,
         "objects": collect_objects(project),
-        "rootObject": get_root_object_id(project),
+        "rootObject": Reference(id=project.project.id, comment="Project object"),
     }
     
     # Format the project dictionary
     result += format_value(project_dict, 0)
+    
+    # Add a trailing newline
+    result += "\n"
     
     return result
 
@@ -157,23 +160,6 @@ def collect_objects_recursive(value: FormattableValue, objects: ObjectsDict, vis
             collect_objects_recursive(dict_item_typed, objects, visited)
 
 
-def get_root_object_id(project: XcodeProject) -> str:
-    """
-    Get the ID of the root object (PBXProject) in the project.
-    
-    Args:
-        project: The XcodeProject object.
-        
-    Returns:
-        The ID of the root PBXProject object.
-    """
-    # In the XcodeProject class, the project field should be the PBXProject object
-    if isinstance(project.project, PBXProject):
-        return project.project.id
-    
-    raise ValueError("Could not find root PBXProject object in project")
-
-
 def format_value(value: FormattableValue, indent_level: int) -> str:
     """
     Format a value based on its type.
@@ -191,9 +177,9 @@ def format_value(value: FormattableValue, indent_level: int) -> str:
     if value is None:
         return "(null)"
     
-    # Handle IDs - should not be quoted
-    elif type(value) == XcodeID:
-        return str(value)
+    # Handle XcodeID - should not be quoted
+    elif isinstance(value, XcodeID):
+        return value
     
     # Handle type objects - use class name without quotes
     elif isinstance(value, type):
@@ -276,11 +262,12 @@ def format_dict(value_dict: Dict[str, FormattableValue], indent_level: int) -> s
     Returns:
         A string representing the formatted dictionary.
     """
-    if not value_dict:
-        return "{}"
-    
     indent = '\t' * indent_level
     inner_indent = '\t' * (indent_level + 1)
+    
+    # Empty dictionaries should have braces on separate lines for Xcode compatibility
+    if not value_dict:
+        return "{\n" + indent + "}"
     
     result = "{\n"
     
@@ -326,37 +313,7 @@ def format_list(value_list: List[FormattableValue], indent_level: int) -> str:
 
 
 def format_enum(value_enum: enum.Enum) -> str:
-    """
-    Format an enum value based on its type.
-    
-    Args:
-        value_enum: The enum value to format.
-        
-    Returns:
-        A string representing the formatted enum value.
-    """
-    # Get the enum's string value
-    enum_value = value_enum.value
-    
-    # For Xcode, many enum values representing identifiers should not be quoted
-    # This includes SourceTree, FileType, ProductType and other enums with special meaning
-    if isinstance(enum_value, str):
-        # Common Xcode type identifier patterns that should not be quoted
-        no_quote_patterns = [
-            "sourcecode.", "wrapper.", "compiled.", "text.", "file.",    # File types
-            "com.apple.product-type.",                                   # Product types
-            "SOURCE_ROOT", "BUILT_PRODUCTS_DIR", "DEVELOPER_DIR",        # Source trees
-            "<group>", "SDKROOT", "ABSOLUTE"                             # More source trees
-        ]
-        
-        # Check if this is an identifier that should not be quoted
-        for pattern in no_quote_patterns:
-            if pattern in enum_value:
-                return enum_value
-        
-        # For all other string values, quote them
-        return f'"{enum_value}"'
-    
-    # Non-string values (like integers) are never quoted
-    return str(enum_value)
+    if isinstance(value_enum.value, str):
+        return f'"{value_enum.value}"'
+    return str(value_enum.value)
     

@@ -8,13 +8,20 @@ as documented in the Xcode project file format.
 
 from dataclasses import dataclass, field
 from enum import Enum, auto
-from typing import Dict, List, Optional, Union, NewType, ClassVar, Any, Set
+from typing import Dict, List, Optional, Union, NewType, ClassVar, Set
 from abc import ABC, abstractmethod
 
 import uuid
 
 # Type definition for Xcode object identifiers
-XcodeID = NewType('XcodeID', str)
+class XcodeID(str):
+    """
+    A specialized string class for Xcode object identifiers.
+    
+    This is used to distinguish Xcode IDs from regular strings,
+    allowing for proper formatting in pbxproj files.
+    """
+    pass
 
 def generate_id(key: str) -> XcodeID:
     """
