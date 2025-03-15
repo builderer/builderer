@@ -9,6 +9,7 @@ from builderer.generators.make.root_makefile import RootMakefile
 from builderer.generators.make.target_mk import TargetMk
 from builderer.generators.make.utils import build_config_root, is_header_only_library
 from builderer.details.variable_expansion import bake_config
+from builderer.details.as_iterator import str_scalar
 
 SUPPORTED_TOOLCHAINS = ["clang", "gcc"]
 SUPPORTED_PLATFORMS = ["linux", "macos"]
@@ -67,7 +68,9 @@ class MakeGenerator:
         for config in configs:
             mk_root = Path(
                 build_config_root(
-                    config.build_root, config.architecture, config.build_config
+                    config.build_root,
+                    arch=str_scalar(config.architecture),
+                    config=str_scalar(config.build_config),
                 )
             )
             target_mks = [
