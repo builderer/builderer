@@ -1,5 +1,14 @@
 from typing import List, Any, Set
-from builderer.generators.xcode.model import XcodeProject, Reference, XcodeObject, XcodeID, SourceTree, FileType, ProductType, YesNo
+from builderer.generators.xcode.model import (
+    XcodeProject,
+    Reference,
+    XcodeObject,
+    XcodeID,
+    SourceTree,
+    FileType,
+    ProductType,
+    YesNo,
+)
 from dataclasses import fields, is_dataclass
 
 
@@ -35,7 +44,7 @@ def validate_references(project: XcodeProject) -> List[str]:
         A list of error messages for invalid references.
     """
     errors = []
-    all_ids = set()
+    all_ids: set[str] = set()
     collect_ids(project, all_ids)
 
     def check_references(obj: Any, context: str):
@@ -51,11 +60,24 @@ def validate_references(project: XcodeProject) -> List[str]:
         elif is_dataclass(obj):
             for field in fields(obj):
                 check_references(getattr(obj, field.name), f"{context}.{field.name}")
-        elif isinstance(obj, (str, int, float, XcodeID, SourceTree, FileType, ProductType, YesNo, type(None))):
+        elif isinstance(
+            obj,
+            (
+                str,
+                int,
+                float,
+                XcodeID,
+                SourceTree,
+                FileType,
+                ProductType,
+                YesNo,
+                type(None),
+            ),
+        ):
             pass  # These are valid types and do not need further checking
         else:
             errors.append(f"Unknown type in {context}: {type(obj).__name__}")
 
     check_references(project, "project")
 
-    return errors 
+    return errors
