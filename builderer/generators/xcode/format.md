@@ -382,6 +382,297 @@ Key attributes:
 - `sourceTree`: How the path is resolved (see Source Tree Constants)
 - `versionGroupType`: Type of the version group, typically "wrapper.xcdatamodel"
 
+### PBXContainerItemProxy
+
+This is the element for decorating a target item.
+
+| Attribute            | Type                  | Value                | Comment                                            |
+| -------------------- | --------------------- | -------------------- | -------------------------------------------------- |
+| reference            | UUID                  | A 96 bits identifier |                                                    |
+| isa                  | PBXContainerItemProxy | Empty                |                                                    |
+| containerPortal      | Reference             | An element reference | The object is a reference to a PBXProject element. |
+| proxyType            | Number                | 1                    |                                                    |
+| remoteGlobalIDString | Reference             | An element reference | A unique reference ID.                             |
+| remoteInfo           | String                |                      |                                                    |
+
+Example:
+
+```
+4D22DC0C1167C992007AF714 /* PBXContainerItemProxy */ = {
+    isa = PBXContainerItemProxy;
+    containerPortal = 08FB7793FE84155DC02AAC07 /* Project object */;
+    proxyType = 1;
+    remoteGlobalIDString = 87293EBF1153C114007AFD45;
+    remoteInfo = xxx;
+};
+```
+
+### PBXReferenceProxy
+
+`PBXReferenceProxy` is used to represent a reference to a file or resource that is external to the project. It acts as a placeholder for items that are not directly included in the project but are referenced by it.
+
+| Attribute  | Type             | Value                              | Comment                                                  |
+| ---------- | ---------------- | ---------------------------------- | -------------------------------------------------------- |
+| reference  | UUID             | A 96 bits identifier               |                                                          |
+| isa        | PBXReferenceProxy| Empty                              |                                                          |
+| fileType   | String           | The type of the file               |                                                          |
+| path       | String           | The path to the file               |                                                          |
+| remoteRef  | Reference        | A reference to a remote object     |                                                          |
+| sourceTree | String           | See the PBXSourceTree enumeration. |                                                          |
+
+Example:
+
+```
+1234567890ABCDEF12345678 /* SomeFile */ = {
+    isa = PBXReferenceProxy;
+    fileType = "sourcecode.c.h";
+    path = "path/to/SomeFile.h";
+    remoteRef = 0987654321FEDCBA09876543 /* RemoteObject */;
+    sourceTree = "<group>";
+};
+```
+
+### PBXAggregateTarget
+
+Defines a target that aggregates multiple targets.
+
+| Attribute | Type  | Value                | Comment |
+|-----------|-------|----------------------|---------|
+| reference | UUID  | A 96 bits identifier |         |
+| isa       | PBXAggregateTarget | Empty |         |
+| buildConfigurationList | Reference | An element reference | The object is a reference to a XCConfigurationList element. |
+| buildPhases | List | A list of element references | The objects are references to build phases. |
+| dependencies | List | A list of element references | The objects are references to PBXTargetDependency elements. |
+| name      | String | The target name      |         |
+| productName | String | The product name   |         |
+
+Example:
+
+```
+XXXXXXXXXXXXXXXXXXXXXXXX /* Aggregate */ = {
+    isa = PBXAggregateTarget;
+    buildConfigurationList = XXXXXXXXXXXXXXXXXXXXXXXX /* Build config list for target */;
+    buildPhases = (
+        XXXXXXXXXXXXXXXXXXXXXXXX /* Sources */,
+    );
+    dependencies = (
+    );
+    name = Aggregate;
+    productName = Aggregate;
+};
+```
+
+### PBXFrameworksBuildPhase
+
+A build phase that links frameworks.
+
+| Attribute | Type  | Value                | Comment |
+|-----------|-------|----------------------|---------|
+| reference | UUID  | A 96 bits identifier |         |
+| isa       | PBXFrameworksBuildPhase | Empty |         |
+| buildActionMask | Number | 2147483647     |         |
+| files     | List  | A list of element references | The objects are references to PBXBuildFile elements. |
+| runOnlyForDeploymentPostprocessing | Number | 0 or 1 |         |
+
+Example:
+
+```
+XXXXXXXXXXXXXXXXXXXXXXXX /* Frameworks */ = {
+    isa = PBXFrameworksBuildPhase;
+    buildActionMask = 2147483647;
+    files = (
+        XXXXXXXXXXXXXXXXXXXXXXXX /* Framework1.framework */,
+    );
+    runOnlyForDeploymentPostprocessing = 0;
+};
+```
+
+### PBXShellScriptBuildPhase
+
+A build phase that runs a shell script.
+
+| Attribute | Type  | Value                | Comment |
+|-----------|-------|----------------------|---------|
+| reference | UUID  | A 96 bits identifier |         |
+| isa       | PBXShellScriptBuildPhase | Empty |         |
+| buildActionMask | Number | 2147483647     |         |
+| files     | List  | A list of element references | The objects are references to PBXBuildFile elements. |
+| inputPaths | List | A list of input file paths |         |
+| outputPaths | List | A list of output file paths |         |
+| shellPath | String | The shell path       |         |
+| shellScript | String | The shell script   |         |
+| runOnlyForDeploymentPostprocessing | Number | 0 or 1 |         |
+
+Example:
+
+```
+XXXXXXXXXXXXXXXXXXXXXXXX /* ShellScript */ = {
+    isa = PBXShellScriptBuildPhase;
+    buildActionMask = 2147483647;
+    files = (
+    );
+    inputPaths = (
+    );
+    outputPaths = (
+    );
+    shellPath = "/bin/sh";
+    shellScript = "echo Hello World";
+    runOnlyForDeploymentPostprocessing = 0;
+};
+```
+
+### PBXBuildRule
+
+Defines a rule for building files.
+
+| Attribute | Type  | Value                | Comment |
+|-----------|-------|----------------------|---------|
+| reference | UUID  | A 96 bits identifier |         |
+| isa       | PBXBuildRule | Empty         |         |
+| compilerSpec | String | The compiler spec |         |
+| filePatterns | String | The file patterns |         |
+| fileType | String | The file type        |         |
+| isEditable | Number | 0 or 1              |         |
+| outputFiles | List | A list of output file paths |         |
+| script | String | The script            |         |
+
+Example:
+
+```
+XXXXXXXXXXXXXXXXXXXXXXXX /* BuildRule */ = {
+    isa = PBXBuildRule;
+    compilerSpec = "com.apple.compilers.proxy.script";
+    filePatterns = "*.m";
+    fileType = "sourcecode.c.objc";
+    isEditable = 1;
+    outputFiles = (
+    );
+    script = "echo Compiling";
+};
+```
+
+### PBXHeadersBuildPhase
+
+A build phase that copies headers.
+
+| Attribute | Type  | Value                | Comment |
+|-----------|-------|----------------------|---------|
+| reference | UUID  | A 96 bits identifier |         |
+| isa       | PBXHeadersBuildPhase | Empty |         |
+| buildActionMask | Number | 2147483647     |         |
+| files     | List  | A list of element references | The objects are references to PBXBuildFile elements. |
+| runOnlyForDeploymentPostprocessing | Number | 0 or 1 |         |
+
+Example:
+
+```
+XXXXXXXXXXXXXXXXXXXXXXXX /* Headers */ = {
+    isa = PBXHeadersBuildPhase;
+    buildActionMask = 2147483647;
+    files = (
+        XXXXXXXXXXXXXXXXXXXXXXXX /* Header1.h */,
+    );
+    runOnlyForDeploymentPostprocessing = 0;
+};
+```
+
+### PBXSourcesBuildPhase
+
+A build phase that compiles source files.
+
+| Attribute | Type  | Value                | Comment |
+|-----------|-------|----------------------|---------|
+| reference | UUID  | A 96 bits identifier |         |
+| isa       | PBXSourcesBuildPhase | Empty |         |
+| buildActionMask | Number | 2147483647     |         |
+| files     | List  | A list of element references | The objects are references to PBXBuildFile elements. |
+| runOnlyForDeploymentPostprocessing | Number | 0 or 1 |         |
+
+Example:
+
+```
+XXXXXXXXXXXXXXXXXXXXXXXX /* Sources */ = {
+    isa = PBXSourcesBuildPhase;
+    buildActionMask = 2147483647;
+    files = (
+        XXXXXXXXXXXXXXXXXXXXXXXX /* Source1.m */,
+    );
+    runOnlyForDeploymentPostprocessing = 0;
+};
+```
+
+### PBXTargetDependency
+
+Defines a dependency on another target.
+
+| Attribute | Type  | Value                | Comment |
+|-----------|-------|----------------------|---------|
+| reference | UUID  | A 96 bits identifier |         |
+| isa       | PBXTargetDependency | Empty |         |
+| target    | Reference | An element reference | The object is a reference to a PBXNativeTarget element. |
+| targetProxy | Reference | An element reference | The object is a reference to a PBXContainerItemProxy element. |
+
+Example:
+
+```
+XXXXXXXXXXXXXXXXXXXXXXXX /* Dependency */ = {
+    isa = PBXTargetDependency;
+    target = XXXXXXXXXXXXXXXXXXXXXXXX /* Target */;
+    targetProxy = XXXXXXXXXXXXXXXXXXXXXXXX /* Proxy */;
+};
+```
+
+### PBXRezBuildPhase
+
+A build phase that processes resource files.
+
+| Attribute | Type  | Value                | Comment |
+|-----------|-------|----------------------|---------|
+| reference | UUID  | A 96 bits identifier |         |
+| isa       | PBXRezBuildPhase | Empty     |         |
+| buildActionMask | Number | 2147483647     |         |
+| files     | List  | A list of element references | The objects are references to PBXBuildFile elements. |
+| runOnlyForDeploymentPostprocessing | Number | 0 or 1 |         |
+
+Example:
+
+```
+XXXXXXXXXXXXXXXXXXXXXXXX /* Rez */ = {
+    isa = PBXRezBuildPhase;
+    buildActionMask = 2147483647;
+    files = (
+        XXXXXXXXXXXXXXXXXXXXXXXX /* Resource1.r */,
+    );
+    runOnlyForDeploymentPostprocessing = 0;
+};
+```
+
+### PBXVariantGroup
+
+`PBXVariantGroup` is used to manage localized resources, such as `.strings` files, in a project.
+
+| Attribute  | Type            | Value                              | Comment                                                  |
+| ---------- | --------------- | ---------------------------------- | -------------------------------------------------------- |
+| reference  | UUID            | A 96 bits identifier               |                                                          |
+| isa        | PBXVariantGroup | Empty                              |                                                          |
+| children   | List            | A list of element references       | The objects are references to PBXFileReference elements. |
+| name       | String          | The name of the group              |                                                          |
+| sourceTree | String          | See the PBXSourceTree enumeration. |                                                          |
+
+Example:
+
+```
+1234567890ABCDEF12345678 /* Localizable.strings */ = {
+    isa = PBXVariantGroup;
+    children = (
+        0987654321FEDCBA09876543 /* en */,
+        11223344556677889900AABB /* fr */,
+    );
+    name = Localizable.strings;
+    sourceTree = "<group>";
+};
+```
+
 ## Object References and Relationships
 
 Objects refer to each other by their unique IDs. The comment after the ID often helps identify what's being referenced:
