@@ -13,6 +13,8 @@ import os
 from builderer import Config
 from builderer.details.package import Package
 from builderer.details.targets.target import Target, BuildTarget
+from builderer.details.targets.cc_binary import CCBinary
+from builderer.details.targets.cc_library import CCLibrary
 from builderer.details.workspace import Workspace
 from builderer.details.variable_expansion import resolve_conditionals
 from builderer.details.as_iterator import str_iter
@@ -53,19 +55,19 @@ class XcodeProjectBuilder:
         Initialize the Xcode project builder.
         
         Args:
-            workspace: The builderer workspace.
+            workspace: The workspace containing all packages and targets.
             config: The configuration to use.
             package: The package containing the target.
-            target: The target to create a project for.
+            target: The target to build.
         """
         self.workspace = workspace
         self.config = config
         self.package = package
         self.target = target
-        self.project_name = f"{target.name}"
-        self.workspace_root = str(workspace.workspace_root) if hasattr(workspace, 'workspace_root') else ""
+        self.project_name = target.name
+        self.workspace_root = str(workspace.root)
         
-        # Collections of created Xcode objects
+        # Initialize collections
         self.file_references: Dict[str, PBXFileReference] = {}
         self.groups: List[PBXGroup] = []
         self.build_files: Dict[str, PBXBuildFile] = {}
@@ -118,8 +120,14 @@ class XcodeProjectBuilder:
         Returns:
             A Reference object.
         """
-        if comment is None and hasattr(obj, 'name'):
-            comment = getattr(obj, 'name')
+        if comment is None:
+            # Try to generate a comment based on the object type
+            if isinstance(obj, (PBXFileReference, PBXGroup, PBXNativeTarget, XCBuildConfiguration)):
+                comment = obj.name
+            elif isinstance(obj, PBXBuildFile):
+                # fileRef is a Reference which always has a comment attribute
+                comment = obj.fileRef.comment
+        
         return Reference(id=obj.id, comment=comment)
     
     def create_file_reference(
@@ -255,40 +263,21 @@ class XcodeProjectBuilder:
         return config_list
     
     def get_source_files(self) -> List[str]:
-        """
-        Get the source files for the target.
-        
-        Returns:
-            A list of source file paths.
-        """
-        # Extract files from target sources if available
-        sources = []
-        if hasattr(self.target, 'sources'):
-            # The sources attribute should be resolved by builderer
-            target_sources = resolve_conditionals(self.config, self.target.sources)
-            if isinstance(target_sources, list):
-                sources = target_sources
-        
-        # Resolve paths relative to package root using list comprehension
-        return [str(self.package.root / src) for src in sources]
+        if isinstance(self.target, (CCBinary, CCLibrary)):
+            # CCBinary and CCLibrary have srcs attribute
+            sources = str_iter(resolve_conditionals(self.config, self.target.srcs))
+            project_dir = Path(self.workspace.root) / self.config.build_root / self.package.root
+            return [os.path.relpath(src, project_dir) for src in sources]
+        else:
+            return []
     
     def get_header_files(self) -> List[str]:
-        """
-        Get the header files for the target.
-        
-        Returns:
-            A list of header file paths.
-        """
-        # Extract files from target headers if available
-        headers = []
-        if hasattr(self.target, 'headers'):
-            # The headers attribute should be resolved by builderer
-            target_headers = resolve_conditionals(self.config, self.target.headers)
-            if isinstance(target_headers, list):
-                headers = target_headers
-        
-        # Resolve paths relative to package root using list comprehension
-        return [str(self.package.root / hdr) for hdr in headers]
+        if isinstance(self.target, CCLibrary):
+            headers = str_iter(resolve_conditionals(self.config, self.target.hdrs))
+            project_dir = Path(self.workspace.root) / self.config.build_root / self.package.root
+            return [os.path.relpath(hdr, project_dir) for hdr in headers]
+        else:
+            return []
     
     def get_dependency_files(self) -> List[str]:
         """
@@ -297,12 +286,8 @@ class XcodeProjectBuilder:
         Returns:
             A list of dependency file paths.
         """
-        # Return empty list if target has no dependencies
-        if not hasattr(self.target, 'dependencies'):
-            return []
-            
-        # Resolve conditionals for dependencies
-        target_deps = resolve_conditionals(self.config, self.target.dependencies)
+        # All Target classes have deps attribute
+        target_deps = resolve_conditionals(self.config, self.target.deps)
         if not isinstance(target_deps, list):
             return []
         
@@ -311,38 +296,48 @@ class XcodeProjectBuilder:
         
         for dep in target_deps:
             # Find the target in all packages
-            for pkg in self.workspace.packages:
+            for pkg in self.workspace.packages.values():
                 matching_targets = [
                     t for t in pkg.targets.values()
-                    if t.name == dep and hasattr(t, 'type')
+                    if t.name == dep
                 ]
                 
                 for pkg_target in matching_targets:
-                    target_type = resolve_conditionals(self.config, pkg_target.type)
-                    if target_type == 'library':
+                    if isinstance(pkg_target, CCLibrary):
                         dependency_files.append(f"lib{pkg_target.name}.a")
-                    elif target_type == 'framework':
-                        dependency_files.append(f"{pkg_target.name}.framework")
+                    elif isinstance(pkg_target, BuildTarget):
+                        # For other build targets, determine type
+                        dependency_files.append(f"lib{pkg_target.name}.a")
         
         return dependency_files
+    
+    def _get_product_type_for_target(self, target: BuildTarget) -> ProductType:
+        """
+        Determine the product type for a target.
+        
+        Args:
+            target: The target to determine the product type for.
+            
+        Returns:
+            The appropriate ProductType.
+            
+        Raises:
+            ValueError: If the target type cannot be determined.
+        """
+        if isinstance(target, CCBinary):
+            return ProductType.TOOL
+        elif isinstance(target, CCLibrary):
+            return ProductType.STATIC_LIBRARY
+        else:
+            # For unknown target types, raise an error
+            raise ValueError(f"Cannot determine product type for target of type {type(target).__name__}")
     
     def process_target(self) -> None:
         """Process the target and add it to the Xcode project."""
         target_name = self.target.name
         
-        # Determine target type and product type
-        if hasattr(self.target, 'type'):
-            target_type = resolve_conditionals(self.config, self.target.type)
-            product_type = {
-                'executable': ProductType.TOOL,
-                'application': ProductType.APPLICATION,
-                'library': ProductType.STATIC_LIBRARY,
-                'framework': ProductType.FRAMEWORK,
-                'bundle': ProductType.BUNDLE,
-            }.get(target_type, ProductType.TOOL)
-        else:
-            # Default to executable
-            product_type = ProductType.TOOL
+        # Determine product type - let exceptions propagate
+        product_type = self._get_product_type_for_target(self.target)
         
         # Get source and header files
         source_files = self.get_source_files()
@@ -466,7 +461,9 @@ class XcodeProjectBuilder:
             ProductType.BUNDLE: FileType.BUNDLE,
             ProductType.TOOL: FileType.EXECUTABLE,
         }
-        return mapping.get(product_type, FileType.TEXT)
+        
+        # Direct dictionary access will raise KeyError if product_type is not found
+        return mapping[product_type]
     
     def build(self) -> XcodeProject:
         """
