@@ -290,6 +290,98 @@ XXXXXXXXXXXXXXXXXXXXXXXX /* Build configuration list */ = {
 };
 ```
 
+### PBXCopyFilesBuildPhase
+
+A build phase that copies files to a specified location during the build process.
+
+```
+XXXXXXXXXXXXXXXXXXXXXXXX /* Copy Files */ = {
+    isa = PBXCopyFilesBuildPhase;
+    buildActionMask = 2147483647;
+    dstPath = "";
+    dstSubfolderSpec = 10;
+    files = (
+        XXXXXXXXXXXXXXXXXXXXXXXX /* File1.txt */,
+        XXXXXXXXXXXXXXXXXXXXXXXX /* File2.txt */,
+    );
+    runOnlyForDeploymentPostprocessing = 0;
+};
+```
+
+Key attributes:
+- `buildActionMask`: Usually set to 2147483647 (2^32-1)
+- `dstPath`: The destination path for copying the files
+- `dstSubfolderSpec`: Numeric value indicating a standard location within the bundle
+  - 0: Absolute path
+  - 1: Wrapper (app bundle)
+  - 2: Executables
+  - 3: Resources
+  - 4: Java Resources
+  - 5: Frameworks
+  - 6: Shared Frameworks
+  - 10: Plug-ins
+  - 11: Scripts
+  - 12: Java Resources
+  - 13: Products Directory
+  - 16: Wrapper (app bundle)
+- `files`: List of references to PBXBuildFile objects
+- `runOnlyForDeploymentPostprocessing`: Flag (0 or 1) indicating whether to run only when installing
+
+### PBXLegacyTarget
+
+Defines a build target that uses an external build system.
+
+```
+XXXXXXXXXXXXXXXXXXXXXXXX /* External */ = {
+    isa = PBXLegacyTarget;
+    buildArgumentsString = "$(ACTION)";
+    buildConfigurationList = XXXXXXXXXXXXXXXXXXXXXXXX /* Build configuration list */;
+    buildPhases = (
+    );
+    buildToolPath = /usr/bin/make;
+    buildWorkingDirectory = "";
+    dependencies = (
+    );
+    name = "External Tool";
+    passBuildSettingsInEnvironment = 1;
+    productName = "External Product";
+};
+```
+
+Key attributes:
+- `buildArgumentsString`: Arguments to pass to the build tool
+- `buildToolPath`: Path to the external build tool (e.g., /usr/bin/make)
+- `buildWorkingDirectory`: Working directory for the build tool
+- `passBuildSettingsInEnvironment`: Flag (0 or 1) indicating whether to pass build settings as environment variables
+- `productName`: Name of the product being built
+
+### XCVersionGroup
+
+Represents a versioned Core Data model in the project.
+
+```
+XXXXXXXXXXXXXXXXXXXXXXXX /* Model.xcdatamodeld */ = {
+    isa = XCVersionGroup;
+    children = (
+        XXXXXXXXXXXXXXXXXXXXXXXX /* Model.xcdatamodel */,
+        XXXXXXXXXXXXXXXXXXXXXXXX /* Model 2.xcdatamodel */,
+    );
+    currentVersion = XXXXXXXXXXXXXXXXXXXXXXXX /* Model 2.xcdatamodel */;
+    name = "Model.xcdatamodeld";
+    path = "Model.xcdatamodeld";
+    sourceTree = "<group>";
+    versionGroupType = "wrapper.xcdatamodel";
+};
+```
+
+Key attributes:
+- `children`: List of references to PBXFileReference objects for each model version
+- `currentVersion`: Reference to the current version of the model
+- `name`: Name of the model group
+- `path`: Path to the model group
+- `sourceTree`: How the path is resolved (see Source Tree Constants)
+- `versionGroupType`: Type of the version group, typically "wrapper.xcdatamodel"
+
 ## Object References and Relationships
 
 Objects refer to each other by their unique IDs. The comment after the ID often helps identify what's being referenced:
