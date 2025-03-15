@@ -124,15 +124,8 @@ def collect_objects_recursive(value: FormattableValue, objects: ObjectsDict, vis
             if field_name == 'id' or field_value is None:
                 continue
             
-            # Convert field_name from snake_case to camelCase for Xcode format
-            if '_' in field_name:
-                parts = field_name.split('_')
-                xcode_name = parts[0] + ''.join(part.capitalize() for part in parts[1:])
-            else:
-                xcode_name = field_name
-            
-            # Add to properties
-            props[xcode_name] = field_value
+            # Add to properties directly without conversion
+            props[field_name] = field_value
         
         # Add to objects dictionary
         objects[object_id] = props

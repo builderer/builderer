@@ -8,6 +8,7 @@ structures defined in model.py.
 
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
+import os
 
 from builderer import Config
 from builderer.details.package import Package
@@ -97,9 +98,9 @@ class XcodeProjectBuilder:
         # Create project object
         self.project = PBXProject(
             name=self.project_name,
-            build_config_list=self.create_reference(config_list, "Build configuration list for PBXProject"),
-            main_group=self.create_reference(self.main_group),
-            product_ref_group=self.create_reference(self.products_group),
+            buildConfigurationList=self.create_reference(config_list, f'Build configuration list for PBXProject "{self.project_name}"'),
+            mainGroup=self.create_reference(self.main_group),
+            productRefGroup=self.create_reference(self.products_group),
             targets=[],
         )
         
@@ -121,13 +122,19 @@ class XcodeProjectBuilder:
             comment = getattr(obj, 'name')
         return Reference(id=obj.id, comment=comment)
     
-    def create_file_reference(self, path: str, file_type: Optional[FileType] = None) -> PBXFileReference:
+    def create_file_reference(
+        self, 
+        path: str, 
+        name: Optional[str] = None, 
+        file_type: Optional[FileType] = None
+    ) -> PBXFileReference:
         """
-        Create a file reference or return an existing one for the given path.
+        Create a file reference.
         
         Args:
-            path: The path to the file, relative to the workspace root.
-            file_type: The type of the file (auto-detected if not provided).
+            path: The path to the file.
+            name: The name of the file.
+            file_type: The type of the file.
             
         Returns:
             The PBXFileReference object.
@@ -135,40 +142,18 @@ class XcodeProjectBuilder:
         if path in self.file_references:
             return self.file_references[path]
         
-        # Extract filename from path
-        filename = Path(path).name
+        if name is None:
+            name = os.path.basename(path)
         
-        # Determine file type if not provided
         if file_type is None:
-            extension = Path(path).suffix.lower()[1:] if Path(path).suffix else ""
-            # Simplified mapping - expand as needed
-            ext_to_type = {
-                "c": FileType.C,
-                "cpp": FileType.CPP,
-                "h": FileType.C_HEADER,
-                "hpp": FileType.CPP_HEADER,
-                "swift": FileType.SWIFT,
-                "m": FileType.OBJC,
-                "mm": FileType.OBJCPP,
-                "xib": FileType.XIB,
-                "storyboard": FileType.STORYBOARD,
-                "plist": FileType.PLIST,
-                "xcconfig": FileType.XCCONFIG,
-                "strings": FileType.STRINGS,
-                "xcassets": FileType.ASSET_CATALOG,
-                "framework": FileType.FRAMEWORK,
-                "bundle": FileType.BUNDLE,
-                "app": FileType.APP,
-                "dylib": FileType.DYLIB,
-            }
-            file_type = ext_to_type.get(extension, FileType.TEXT)
+            ext = os.path.splitext(path)[1].lower()
+            file_type = FileType.from_extension(ext)
         
-        # Create file reference
         file_ref = PBXFileReference(
-            name=filename,
+            name=name,
             path=path,
-            file_type=file_type,
-            source_tree=SourceTree.SOURCE_ROOT,
+            sourceTree=SourceTree.SOURCE_ROOT,
+            fileType=file_type,
         )
         
         self.file_references[path] = file_ref
@@ -176,43 +161,48 @@ class XcodeProjectBuilder:
     
     def create_build_file(self, file_ref: PBXFileReference) -> PBXBuildFile:
         """
-        Create a build file for a file reference or return an existing one.
+        Create a build file.
         
         Args:
-            file_ref: The file reference.
+            file_ref: The file reference to create a build file for.
             
         Returns:
             The PBXBuildFile object.
         """
-        key = file_ref.id
-        if key in self.build_files:
-            return self.build_files[key]
+        # Check if we already have a build file for this file reference
+        file_ref_id = file_ref.id
+        if file_ref_id in self.build_files:
+            return self.build_files[file_ref_id]
         
+        # Create a new build file
         build_file = PBXBuildFile(
-            name=file_ref.name,
-            file_ref=self.create_reference(file_ref),
+            fileRef=self.create_reference(file_ref),
         )
         
-        self.build_files[key] = build_file
+        self.build_files[file_ref_id] = build_file
         return build_file
     
     def create_group(self, name: str, path: Optional[str] = None, is_root: bool = False) -> PBXGroup:
         """
-        Create a group for files.
+        Create a group.
         
         Args:
             name: The name of the group.
-            path: The path of the group.
-            is_root: Whether this is a root group (no path component).
+            path: The path to the group.
+            is_root: Whether this is a root group.
             
         Returns:
             The PBXGroup object.
         """
+        source_tree = SourceTree.GROUP
+        if is_root:
+            source_tree = SourceTree.SOURCE_ROOT
+        
         group = PBXGroup(
             name=name,
-            source_tree=SourceTree.GROUP,
+            sourceTree=source_tree,
             children=[],
-            path=None if is_root else path,
+            path=path,
         )
         
         self.groups.append(group)
@@ -235,7 +225,7 @@ class XcodeProjectBuilder:
         """
         config = XCBuildConfiguration(
             name=name,
-            build_settings=build_settings,
+            buildSettings=build_settings,
         )
         
         self.build_configurations.append(config)
@@ -257,8 +247,8 @@ class XcodeProjectBuilder:
             The XCConfigurationList object.
         """
         config_list = XCConfigurationList(
-            build_configurations=[self.create_reference(config) for config in configs],
-            default_configuration_name=default_config_name,
+            buildConfigurations=[self.create_reference(config) for config in configs],
+            defaultConfigurationName=default_config_name,
         )
         
         self.configuration_lists.append(config_list)
@@ -368,7 +358,7 @@ class XcodeProjectBuilder:
         source_build_files = [self.create_build_file(ref) for ref in source_refs]
         dependency_build_files = [self.create_build_file(ref) for ref in dependency_refs]
         
-        # Create build phases with references
+        # Create build phases
         sources_phase = PBXSourcesBuildPhase(
             files=[self.create_reference(file) for file in source_build_files],
         )
@@ -426,15 +416,15 @@ class XcodeProjectBuilder:
         # Create target
         xcode_target = PBXNativeTarget(
             name=target_name,
-            product_name=product_name,
-            product_type=product_type,
-            build_phases=[
+            productName=product_name,
+            productType=product_type,
+            buildPhases=[
                 self.create_reference(sources_phase),
                 self.create_reference(frameworks_phase),
                 self.create_reference(resources_phase),
             ],
-            build_config_list=self.create_reference(config_list),
-            product_reference=self.create_reference(product_ref),
+            buildConfigurationList=self.create_reference(config_list),
+            productReference=self.create_reference(product_ref),
         )
         
         self.targets[target_name] = xcode_target
@@ -486,14 +476,14 @@ class XcodeProjectBuilder:
             An XcodeProject instance that can be serialized to a .pbxproj file.
         """
         return XcodeProject(
-            file_references=list(self.file_references.values()),
+            fileReferences=list(self.file_references.values()),
             groups=self.groups,
-            build_files=list(self.build_files.values()),
-            build_phases=[],  # Build phases are referenced from targets
-            native_targets=list(self.targets.values()),
+            buildFiles=list(self.build_files.values()),
+            buildPhases=[],  # Build phases are referenced from targets
+            nativeTargets=list(self.targets.values()),
             project=self.project,
-            build_configurations=self.build_configurations,
-            configuration_lists=self.configuration_lists,
+            buildConfigurations=self.build_configurations,
+            configurationLists=self.configuration_lists,
         )
 
 

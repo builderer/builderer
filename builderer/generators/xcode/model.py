@@ -65,8 +65,7 @@ class DstSubfolderSpec(Enum):
 
 # File types used in PBXFileReference
 class FileType(Enum):
-    """File type identifiers used in lastKnownFileType or explicitFileType."""
-    # Source code
+    """Possible file types for PBXFileReference."""
     C = "sourcecode.c.c"
     CPP = "sourcecode.cpp.cpp"
     C_HEADER = "sourcecode.c.h"
@@ -74,25 +73,55 @@ class FileType(Enum):
     SWIFT = "sourcecode.swift"
     OBJC = "sourcecode.c.objc"
     OBJCPP = "sourcecode.cpp.objcpp"
-    
-    # Resources
     XIB = "file.xib"
     STORYBOARD = "file.storyboard"
-    PLIST = "text.plist"
+    PLIST = "text.plist.xml"
     XCCONFIG = "text.xcconfig"
     STRINGS = "text.plist.strings"
-    
-    # Compiled
-    EXECUTABLE = "compiled.mach-o.executable"
-    DYLIB = "compiled.mach-o.dylib"
+    ASSET_CATALOG = "folder.assetcatalog"
     FRAMEWORK = "wrapper.framework"
     BUNDLE = "wrapper.bundle"
     APP = "wrapper.application"
-    
-    # Other
-    FOLDER = "folder"
+    DYLIB = "compiled.mach-o.dylib"
     TEXT = "text"
-    ASSET_CATALOG = "folder.assetcatalog"
+    FOLDER = "folder"
+    EXECUTABLE = "compiled.mach-o.executable"
+    
+    @staticmethod
+    def from_extension(ext: str) -> 'FileType':
+        """
+        Get the file type from a file extension.
+        
+        Args:
+            ext: The file extension (with or without the dot).
+            
+        Returns:
+            The corresponding FileType.
+        """
+        if ext.startswith('.'):
+            ext = ext[1:]
+        
+        ext_to_type = {
+            "c": FileType.C,
+            "cpp": FileType.CPP,
+            "h": FileType.C_HEADER,
+            "hpp": FileType.CPP_HEADER,
+            "swift": FileType.SWIFT,
+            "m": FileType.OBJC,
+            "mm": FileType.OBJCPP,
+            "xib": FileType.XIB,
+            "storyboard": FileType.STORYBOARD,
+            "plist": FileType.PLIST,
+            "xcconfig": FileType.XCCONFIG,
+            "strings": FileType.STRINGS,
+            "xcassets": FileType.ASSET_CATALOG,
+            "framework": FileType.FRAMEWORK,
+            "bundle": FileType.BUNDLE,
+            "app": FileType.APP,
+            "dylib": FileType.DYLIB,
+        }
+        
+        return ext_to_type.get(ext.lower(), FileType.TEXT)
 
 
 # Product types used in PBXNativeTarget
@@ -159,173 +188,111 @@ class XcodeObject(ABC):
 # PBX* object types
 @dataclass
 class PBXBuildFile(XcodeObject):
-    """A build file in the project. Represents a file used in a build phase."""
-    name: str
-    file_ref: Reference
+    """A build file in the project. Represents a file that is used in a build phase."""
+    fileRef: Reference
+    settings: Optional[Dict[str, Union[str, List[str]]]] = None
     
     def key(self) -> str:
-        """Use file reference ID as the primary key for build files."""
-        return f"PBXBuildFile:{self.file_ref.id}"
+        """Use file reference ID for build file key."""
+        return f"PBXBuildFile:{self.fileRef.id}"
 
 
 @dataclass
 class PBXFileReference(XcodeObject):
-    """A file reference in the project. Describes a reference to a file on disk."""
+    """A file reference in the project. Represents a file on disk."""
     name: str
-    file_type: FileType
     path: str
-    source_tree: SourceTree
-    explicit_file_type: Optional[FileType] = None
-    last_known_file_type: Optional[FileType] = None
+    sourceTree: SourceTree
+    fileType: Optional[FileType] = None
     
     def key(self) -> str:
-        """Use path as the primary key for file references."""
+        """Use path for file reference key."""
         return f"PBXFileReference:{self.path}"
 
 
 @dataclass
 class PBXSourcesBuildPhase(XcodeObject):
-    """
-    Sources build phase. Compiles source files.
-    
-    Attributes:
-        files: List of references to PBXBuildFile objects
-        build_action_mask: Usually set to 2147483647 (2^32-1)
-        run_only_for_deployment_postprocessing: Flag (0 or 1) indicating whether to run only when installing
-    """
+    """A sources build phase in the project. Compiles source files."""
     files: List[Reference]
-    build_action_mask: int = 2147483647  # Default value used by Xcode
-    run_only_for_deployment_postprocessing: int = 0
+    buildActionMask: int = 2147483647
+    runOnlyForDeploymentPostprocessing: int = 0
     
     def key(self) -> str:
-        """Use class name and first file ID (if available) for build phase key."""
-        class_name = self.__class__.__name__
-        if self.files:
-            return f"{class_name}:{self.files[0].id}"
-        return class_name
+        """Use class name for build phase key."""
+        return f"{self.__class__.__name__}"
 
 
 @dataclass
 class PBXHeadersBuildPhase(XcodeObject):
-    """
-    Headers build phase. Copies headers to the product directory.
-    
-    Attributes:
-        files: List of references to PBXBuildFile objects
-        build_action_mask: Usually set to 2147483647 (2^32-1)
-        run_only_for_deployment_postprocessing: Flag (0 or 1) indicating whether to run only when installing
-    """
+    """A headers build phase in the project. Copies header files."""
     files: List[Reference]
-    build_action_mask: int = 2147483647  # Default value used by Xcode
-    run_only_for_deployment_postprocessing: int = 0
+    buildActionMask: int = 2147483647
+    runOnlyForDeploymentPostprocessing: int = 0
     
     def key(self) -> str:
-        """Use class name and first file ID (if available) for build phase key."""
-        class_name = self.__class__.__name__
-        if self.files:
-            return f"{class_name}:{self.files[0].id}"
-        return class_name
+        """Use class name for build phase key."""
+        return f"{self.__class__.__name__}"
 
 
 @dataclass
 class PBXFrameworksBuildPhase(XcodeObject):
-    """
-    Frameworks build phase. Links with frameworks and libraries.
-    
-    Attributes:
-        files: List of references to PBXBuildFile objects
-        build_action_mask: Usually set to 2147483647 (2^32-1)
-        run_only_for_deployment_postprocessing: Flag (0 or 1) indicating whether to run only when installing
-    """
+    """A frameworks build phase in the project. Links with frameworks."""
     files: List[Reference]
-    build_action_mask: int = 2147483647  # Default value used by Xcode
-    run_only_for_deployment_postprocessing: int = 0
+    buildActionMask: int = 2147483647
+    runOnlyForDeploymentPostprocessing: int = 0
     
     def key(self) -> str:
-        """Use class name and first file ID (if available) for build phase key."""
-        class_name = self.__class__.__name__
-        if self.files:
-            return f"{class_name}:{self.files[0].id}"
-        return class_name
+        """Use class name for build phase key."""
+        return f"{self.__class__.__name__}"
 
 
 @dataclass
 class PBXResourcesBuildPhase(XcodeObject):
-    """
-    Resources build phase. Copies resources to the product directory.
-    
-    Attributes:
-        files: List of references to PBXBuildFile objects
-        build_action_mask: Usually set to 2147483647 (2^32-1)
-        run_only_for_deployment_postprocessing: Flag (0 or 1) indicating whether to run only when installing
-    """
+    """A resources build phase in the project. Copies resource files."""
     files: List[Reference]
-    build_action_mask: int = 2147483647  # Default value used by Xcode
-    run_only_for_deployment_postprocessing: int = 0
+    buildActionMask: int = 2147483647
+    runOnlyForDeploymentPostprocessing: int = 0
     
     def key(self) -> str:
-        """Use class name and first file ID (if available) for build phase key."""
-        class_name = self.__class__.__name__
-        if self.files:
-            return f"{class_name}:{self.files[0].id}"
-        return class_name
+        """Use class name for build phase key."""
+        return f"{self.__class__.__name__}"
 
 
 @dataclass
 class PBXCopyFilesBuildPhase(XcodeObject):
-    """
-    Copy files build phase. Copies files to a specified location during the build process.
-    
-    Attributes:
-        dst_path: The destination path for copying the files
-        dst_subfolder_spec: The standard location within the bundle to copy files to
-        files: List of references to PBXBuildFile objects
-        build_action_mask: Usually set to 2147483647 (2^32-1)
-        run_only_for_deployment_postprocessing: Flag (0 or 1) indicating whether to run only when installing
-    """
+    """A copy files build phase in the project. Copies files to a specified location."""
     files: List[Reference]
-    dst_path: str
-    dst_subfolder_spec: DstSubfolderSpec
-    build_action_mask: int = 2147483647  # Default value used by Xcode
-    run_only_for_deployment_postprocessing: int = 0
+    dstPath: str
+    dstSubfolderSpec: DstSubfolderSpec
+    buildActionMask: int = 2147483647
+    runOnlyForDeploymentPostprocessing: int = 0
     
     def key(self) -> str:
         """Use class name, destination path and subfolder spec for build phase key."""
-        return f"{self.__class__.__name__}:{self.dst_path}:{self.dst_subfolder_spec.name}"
+        return f"{self.__class__.__name__}:{self.dstPath}:{self.dstSubfolderSpec.name}"
 
 
 @dataclass
 class PBXShellScriptBuildPhase(XcodeObject):
-    """
-    Shell script build phase. Runs a shell script.
-    
-    Attributes:
-        files: List of references to PBXBuildFile objects
-        input_paths: List of input file paths
-        output_paths: List of output file paths
-        shell_path: Path to the shell to use (default: /bin/sh)
-        shell_script: The script to run
-        build_action_mask: Usually set to 2147483647 (2^32-1)
-        run_only_for_deployment_postprocessing: Flag (0 or 1) indicating whether to run only when installing
-    """
+    """A shell script build phase in the project. Runs a shell script."""
     files: List[Reference]
-    shell_script: str
-    build_action_mask: int = 2147483647  # Default value used by Xcode
-    run_only_for_deployment_postprocessing: int = 0
-    input_paths: List[str] = field(default_factory=list)
-    output_paths: List[str] = field(default_factory=list)
-    shell_path: str = "/bin/sh"
+    shellScript: str
+    buildActionMask: int = 2147483647
+    runOnlyForDeploymentPostprocessing: int = 0
+    inputPaths: List[str] = field(default_factory=list)
+    outputPaths: List[str] = field(default_factory=list)
+    shellPath: str = "/bin/sh"
     
     def key(self) -> str:
         """Use class name and script for build phase key."""
-        return f"{self.__class__.__name__}:{hash(self.shell_script)}"
+        return f"{self.__class__.__name__}:{hash(self.shellScript)}"
 
 
 @dataclass
 class PBXGroup(XcodeObject):
     """A group in the project. Represents a group or folder in the project navigator."""
     name: str
-    source_tree: SourceTree
+    sourceTree: SourceTree
     children: List[Reference]
     path: Optional[str] = None
     
@@ -338,18 +305,10 @@ class PBXGroup(XcodeObject):
 
 @dataclass
 class PBXVariantGroup(XcodeObject):
-    """
-    A variant group in the project. For localized resources.
-    
-    Attributes:
-        name: Name of the group
-        children: List of references to localized resources
-        source_tree: How the path is resolved (see Source Tree Constants)
-        path: Path to the group
-    """
+    """A variant group in the project. For localized resources."""
     name: str
     children: List[Reference]
-    source_tree: SourceTree
+    sourceTree: SourceTree
     path: Optional[str] = None
     
     def key(self) -> str:
@@ -361,118 +320,100 @@ class PBXVariantGroup(XcodeObject):
 
 @dataclass
 class XCVersionGroup(XcodeObject):
-    """
-    A version group in the project. Represents a versioned Core Data model.
-    
-    Attributes:
-        name: Name of the model group
-        children: List of references to PBXFileReference objects for each model version
-        current_version: Reference to the current version of the model
-        path: Path to the model group
-        source_tree: How the path is resolved (see Source Tree Constants)
-        version_group_type: Type of the version group, typically "wrapper.xcdatamodel"
-    """
+    """A version group in the project. Represents a versioned Core Data model."""
     name: str
     children: List[Reference]
-    current_version: Reference
-    source_tree: SourceTree
+    currentVersion: Reference
+    sourceTree: SourceTree
     path: Optional[str] = None
-    version_group_type: str = "wrapper.xcdatamodel"
+    versionGroupType: str = "wrapper.xcdatamodel"
     
     def key(self) -> str:
         """Use name, path, and version group type for version group key."""
         path_part = f":{self.path}" if self.path else ""
-        return f"XCVersionGroup:{self.name}{path_part}:{self.version_group_type}"
+        return f"XCVersionGroup:{self.name}{path_part}:{self.versionGroupType}"
 
 
 @dataclass
 class PBXTargetDependency(XcodeObject):
     """Target dependency. Indicates that one target depends on another."""
     target: Reference
-    target_proxy: Reference
+    targetProxy: Reference
+    
+    def key(self) -> str:
+        """Use target ID for target dependency key."""
+        return f"PBXTargetDependency:{self.target.id}"
 
 
 @dataclass
 class PBXContainerItemProxy(XcodeObject):
     """Container item proxy. Refers to an item in another target."""
-    container_portal: Reference
-    proxy_type: int
-    remote_global_id_string: str
-    remote_info: str
+    containerPortal: Reference
+    proxyType: int
+    remoteGlobalIDString: str
+    remoteInfo: str
+    
+    def key(self) -> str:
+        """Use container portal ID and remote info for container item proxy key."""
+        return f"PBXContainerItemProxy:{self.containerPortal.id}:{self.remoteInfo}"
 
 
 @dataclass
 class PBXReferenceProxy(XcodeObject):
     """Reference proxy. Refers to a product of another target."""
-    file_type: FileType
+    fileType: FileType
     path: str
-    remote_ref: Reference
-    source_tree: SourceTree
+    remoteRef: Reference
+    sourceTree: SourceTree
+    
+    def key(self) -> str:
+        """Use path for reference proxy key."""
+        return f"PBXReferenceProxy:{self.path}"
 
 
 @dataclass
 class PBXBuildRule(XcodeObject):
     """Build rule. Defines how to process a file of a given type."""
-    compiler_spec: str
-    file_type: str
-    is_editable: int
-    file_patterns: Optional[str] = None
-    input_files: List[str] = field(default_factory=list)
-    output_files: List[str] = field(default_factory=list)
+    compilerSpec: str
+    fileType: str
+    isEditable: int
+    filePatterns: Optional[str] = None
+    inputFiles: List[str] = field(default_factory=list)
+    outputFiles: List[str] = field(default_factory=list)
     script: Optional[str] = None
-    run_once_per_architecture: Optional[int] = None
+    runOncePerArchitecture: Optional[int] = None
+    
+    def key(self) -> str:
+        """Use compiler spec and file type for build rule key."""
+        return f"PBXBuildRule:{self.compilerSpec}:{self.fileType}"
 
 
 @dataclass
 class PBXNativeTarget(XcodeObject):
-    """
-    A native target in the project. Represents a build target.
-    
-    Attributes:
-        name: Name of the target
-        build_config_list: Reference to the XCConfigurationList
-        build_phases: List of references to build phases
-        product_reference: Reference to the product file
-        product_type: The type of product being built
-        dependencies: List of references to target dependencies
-        build_rules: List of references to build rules
-        product_name: Name of the product being built
-        product_install_path: Path for installing the product
-    """
+    """A native target in the project. Represents a binary to build."""
     name: str
-    build_config_list: Reference
-    build_phases: List[Reference]
-    product_reference: Reference
-    product_type: ProductType
+    productType: ProductType
+    buildPhases: List[Reference]
+    buildConfigurationList: Reference
+    productReference: Reference
+    productName: str
+    buildRules: List[Reference] = field(default_factory=list)
     dependencies: List[Reference] = field(default_factory=list)
-    build_rules: List[Reference] = field(default_factory=list)
-    product_name: Optional[str] = None
-    product_install_path: Optional[str] = None
     
     def key(self) -> str:
-        """Use name and product type for target key."""
-        return f"PBXNativeTarget:{self.name}:{self.product_type.name}"
+        """Use name for target key."""
+        return f"PBXNativeTarget:{self.name}"
 
 
 @dataclass
 class PBXAggregateTarget(XcodeObject):
-    """
-    An aggregate target in the project. Groups several targets.
-    
-    Attributes:
-        name: Name of the target
-        build_config_list: Reference to the XCConfigurationList
-        build_phases: List of references to build phases
-        dependencies: List of references to target dependencies
-        build_rules: List of references to build rules
-        product_name: Name of the product being built
-    """
+    """An aggregate target in the project. Groups several targets."""
     name: str
-    build_config_list: Reference
-    build_phases: List[Reference]
+    buildConfigurationList: Reference
+    buildPhases: List[Reference]
     dependencies: List[Reference] = field(default_factory=list)
-    build_rules: List[Reference] = field(default_factory=list)
-    product_name: Optional[str] = None
+    buildRules: List[Reference] = field(default_factory=list)
+    productName: Optional[str] = None
     
     def key(self) -> str:
         """Use name for aggregate target key."""
@@ -481,51 +422,37 @@ class PBXAggregateTarget(XcodeObject):
 
 @dataclass
 class PBXLegacyTarget(XcodeObject):
-    """
-    A legacy target in the project. Uses an external build system.
-    
-    Attributes:
-        name: Name of the target
-        build_config_list: Reference to the XCConfigurationList
-        build_phases: List of references to build phases
-        build_tool_path: Path to the external build tool (e.g., /usr/bin/make)
-        build_arguments_string: Arguments to pass to the build tool
-        pass_build_settings_in_environment: Flag (0 or 1) indicating whether to pass build settings as environment variables
-        dependencies: List of references to target dependencies
-        build_rules: List of references to build rules
-        product_name: Name of the product being built
-        build_working_directory: Working directory for the build tool
-    """
+    """A legacy target in the project. Uses an external build system."""
     name: str
-    build_config_list: Reference
-    build_phases: List[Reference]
-    build_tool_path: str
-    build_arguments_string: str
-    pass_build_settings_in_environment: int
+    buildConfigurationList: Reference
+    buildPhases: List[Reference]
+    buildToolPath: str
+    buildArgumentsString: str
+    passBuildSettingsInEnvironment: int
     dependencies: List[Reference] = field(default_factory=list)
-    build_rules: List[Reference] = field(default_factory=list)
-    product_name: Optional[str] = None
-    build_working_directory: str = ""
+    buildRules: List[Reference] = field(default_factory=list)
+    productName: Optional[str] = None
+    buildWorkingDirectory: str = ""
     
     def key(self) -> str:
         """Use name and build tool path for target key."""
-        return f"PBXLegacyTarget:{self.name}:{self.build_tool_path}"
+        return f"PBXLegacyTarget:{self.name}:{self.buildToolPath}"
 
 
 @dataclass
 class PBXProject(XcodeObject):
     """The project object. The root object of the project."""
     name: str
-    build_config_list: Reference
-    main_group: Reference
-    product_ref_group: Reference
+    buildConfigurationList: Reference
+    mainGroup: Reference
+    productRefGroup: Reference
     targets: List[Reference]
-    compatibility_version: str = "Xcode 14.0"
-    development_region: str = "en"
-    has_scanned_for_encodings: int = 1
-    known_regions: List[str] = field(default_factory=lambda: ["en", "Base"])
-    project_dir_path: str = ""
-    project_root: str = ""
+    compatibilityVersion: str = "Xcode 14.0"
+    developmentRegion: str = "en"
+    hasScannedForEncodings: int = 1
+    knownRegions: List[str] = field(default_factory=lambda: ["en", "Base"])
+    projectDirPath: str = ""
+    projectRoot: str = ""
     
     def key(self) -> str:
         """Use name for project key."""
@@ -536,8 +463,8 @@ class PBXProject(XcodeObject):
 class XCBuildConfiguration(XcodeObject):
     """A build configuration in the project. Contains build settings."""
     name: str
-    build_settings: Dict[str, BuildSetting]
-    base_configuration_reference: Optional[Reference] = None
+    buildSettings: Dict[str, BuildSetting]
+    baseConfigurationReference: Optional[Reference] = None
     
     def key(self) -> str:
         """Use name for configuration key."""
@@ -547,25 +474,25 @@ class XCBuildConfiguration(XcodeObject):
 @dataclass
 class XCConfigurationList(XcodeObject):
     """A configuration list in the project. Holds a list of build configurations."""
-    build_configurations: List[Reference]
-    default_configuration_is_visible: int = 0
-    default_configuration_name: str = "Release"
+    buildConfigurations: List[Reference]
+    defaultConfigurationIsVisible: int = 0
+    defaultConfigurationName: str = "Release"
     
     def key(self) -> str:
         """Use configurations and default name for config list key."""
-        if self.build_configurations:
-            return f"XCConfigurationList:{self.build_configurations[0].id}:{self.default_configuration_name}"
-        return f"XCConfigurationList:{self.default_configuration_name}"
+        if self.buildConfigurations:
+            return f"XCConfigurationList:{self.buildConfigurations[0].id}:{self.defaultConfigurationName}"
+        return f"XCConfigurationList:{self.defaultConfigurationName}"
 
 
 # Complete project representation
 @dataclass
 class XcodeProject:
     """An Xcode project. Contains all objects needed to generate a project file."""
-    file_references: List[PBXFileReference]
+    fileReferences: List[PBXFileReference]
     groups: List[PBXGroup]
-    build_files: List[PBXBuildFile]
-    build_phases: List[Union[
+    buildFiles: List[PBXBuildFile]
+    buildPhases: List[Union[
         PBXSourcesBuildPhase, 
         PBXHeadersBuildPhase, 
         PBXFrameworksBuildPhase, 
@@ -573,18 +500,18 @@ class XcodeProject:
         PBXCopyFilesBuildPhase,
         PBXShellScriptBuildPhase
     ]]
-    native_targets: List[PBXNativeTarget]
+    nativeTargets: List[PBXNativeTarget]
     project: PBXProject
-    build_configurations: List[XCBuildConfiguration]
-    configuration_lists: List[XCConfigurationList]
-    variant_groups: List[PBXVariantGroup] = field(default_factory=list)
-    version_groups: List[XCVersionGroup] = field(default_factory=list)
-    target_dependencies: List[PBXTargetDependency] = field(default_factory=list)
-    container_item_proxies: List[PBXContainerItemProxy] = field(default_factory=list)
-    reference_proxies: List[PBXReferenceProxy] = field(default_factory=list)
-    build_rules: List[PBXBuildRule] = field(default_factory=list)
-    aggregate_targets: List[PBXAggregateTarget] = field(default_factory=list)
-    legacy_targets: List[PBXLegacyTarget] = field(default_factory=list)
+    buildConfigurations: List[XCBuildConfiguration]
+    configurationLists: List[XCConfigurationList]
+    variantGroups: List[PBXVariantGroup] = field(default_factory=list)
+    versionGroups: List[XCVersionGroup] = field(default_factory=list)
+    targetDependencies: List[PBXTargetDependency] = field(default_factory=list)
+    containerItemProxies: List[PBXContainerItemProxy] = field(default_factory=list)
+    referenceProxies: List[PBXReferenceProxy] = field(default_factory=list)
+    buildRules: List[PBXBuildRule] = field(default_factory=list)
+    aggregateTargets: List[PBXAggregateTarget] = field(default_factory=list)
+    legacyTargets: List[PBXLegacyTarget] = field(default_factory=list)
 
 
 # Default build settings that apply to all targets
