@@ -7,7 +7,7 @@ structures defined in model.py.
 """
 
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Set, Tuple, Union
 import os
 
 from builderer import Config
@@ -50,7 +50,7 @@ class XcodeProjectBuilder:
     the Xcode project model defined in model.py.
     """
     
-    def __init__(self, workspace: Workspace, config: Config, package: Package, target: BuildTarget):
+    def __init__(self, workspace: Workspace, config: Config, package: Package, target: BuildTarget) -> None:
         """
         Initialize the Xcode project builder.
         
@@ -74,6 +74,7 @@ class XcodeProjectBuilder:
         self.targets: Dict[str, PBXNativeTarget] = {}
         self.build_configurations: List[XCBuildConfiguration] = []
         self.configuration_lists: List[XCConfigurationList] = []
+        self.build_phases: List[Union[PBXSourcesBuildPhase, PBXFrameworksBuildPhase, PBXResourcesBuildPhase]] = []  # Store build phases
         
         # Create root groups
         self.main_group = self.create_group("", is_root=True)
@@ -450,6 +451,9 @@ class XcodeProjectBuilder:
             # Add dependencies to frameworks group
             for dep_ref in dependency_refs:
                 frameworks_group.children.append(self.create_reference(dep_ref))
+        
+        # Store build phases
+        self.build_phases.extend([sources_phase, frameworks_phase, resources_phase])
     
     def _get_file_type_for_product(self, product_type: ProductType) -> FileType:
         """Map product type to file type."""
@@ -476,7 +480,7 @@ class XcodeProjectBuilder:
             fileReferences=list(self.file_references.values()),
             groups=self.groups,
             buildFiles=list(self.build_files.values()),
-            buildPhases=[],  # Build phases are referenced from targets
+            buildPhases=self.build_phases,  # Add stored build phases
             nativeTargets=list(self.targets.values()),
             project=self.project,
             buildConfigurations=self.build_configurations,
