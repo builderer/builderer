@@ -105,6 +105,7 @@ PBXContainerItemProxy     PBXLegacyTarget            PBXVariantGroup
 PBXCopyFilesBuildPhase    PBXNativeTarget            XCBuildConfiguration
 PBXFileReference          PBXProject                 XCConfigurationList
 PBXReferenceProxy         PBXRezBuildPhase           XCVersionGroup
+PBXResourcesBuildPhase
 ```
 
 #### Source Tree Constants
@@ -260,6 +261,15 @@ XXXXXXXXXXXXXXXXXXXXXXXX /* MyApp */ = {
 
 Contains build settings for a specific configuration (e.g., Debug or Release).
 
+| Attribute | Type  | Value                | Comment |
+|-----------|-------|----------------------|---------|
+| reference | UUID  | A 96 bits identifier |         |
+| isa       | XCBuildConfiguration | Empty |         |
+| buildSettings | Dictionary | A dictionary of build settings |         |
+| name      | String | The configuration name |         |
+
+Example:
+
 ```
 XXXXXXXXXXXXXXXXXXXXXXXX /* Debug */ = {
     isa = XCBuildConfiguration;
@@ -278,6 +288,16 @@ XXXXXXXXXXXXXXXXXXXXXXXX /* Debug */ = {
 
 Holds a list of build configurations.
 
+| Attribute | Type  | Value                | Comment |
+|-----------|-------|----------------------|---------|
+| reference | UUID  | A 96 bits identifier |         |
+| isa       | XCConfigurationList | Empty |         |
+| buildConfigurations | List | A list of element references | The objects are references to XCBuildConfiguration elements. |
+| defaultConfigurationIsVisible | Number | 0 or 1  |         |
+| defaultConfigurationName | String | The default configuration name |         |
+
+Example:
+
 ```
 XXXXXXXXXXXXXXXXXXXXXXXX /* Build configuration list */ = {
     isa = XCConfigurationList;
@@ -287,6 +307,38 @@ XXXXXXXXXXXXXXXXXXXXXXXX /* Build configuration list */ = {
     );
     defaultConfigurationIsVisible = 0;
     defaultConfigurationName = Release;
+};
+```
+
+### XCVersionGroup
+
+Represents a versioned Core Data model in the project.
+
+| Attribute | Type  | Value                | Comment |
+|-----------|-------|----------------------|---------|
+| reference | UUID  | A 96 bits identifier |         |
+| isa       | XCVersionGroup | Empty |         |
+| children  | List | A list of element references | The objects are references to PBXFileReference elements. |
+| currentVersion | Reference | An element reference | The object is a reference to the current version of the model. |
+| name      | String | The name of the model group |         |
+| path      | String | The path to the model group |         |
+| sourceTree | String | See the PBXSourceTree enumeration. |         |
+| versionGroupType | String | The type of the version group | Typically "wrapper.xcdatamodel". |
+
+Example:
+
+```
+XXXXXXXXXXXXXXXXXXXXXXXX /* Model.xcdatamodeld */ = {
+    isa = XCVersionGroup;
+    children = (
+        XXXXXXXXXXXXXXXXXXXXXXXX /* Model.xcdatamodel */,
+        XXXXXXXXXXXXXXXXXXXXXXXX /* Model 2.xcdatamodel */,
+    );
+    currentVersion = XXXXXXXXXXXXXXXXXXXXXXXX /* Model 2.xcdatamodel */;
+    name = "Model.xcdatamodeld";
+    path = "Model.xcdatamodeld";
+    sourceTree = "<group>";
+    versionGroupType = "wrapper.xcdatamodel";
 };
 ```
 
@@ -354,33 +406,6 @@ Key attributes:
 - `buildWorkingDirectory`: Working directory for the build tool
 - `passBuildSettingsInEnvironment`: Flag (0 or 1) indicating whether to pass build settings as environment variables
 - `productName`: Name of the product being built
-
-### XCVersionGroup
-
-Represents a versioned Core Data model in the project.
-
-```
-XXXXXXXXXXXXXXXXXXXXXXXX /* Model.xcdatamodeld */ = {
-    isa = XCVersionGroup;
-    children = (
-        XXXXXXXXXXXXXXXXXXXXXXXX /* Model.xcdatamodel */,
-        XXXXXXXXXXXXXXXXXXXXXXXX /* Model 2.xcdatamodel */,
-    );
-    currentVersion = XXXXXXXXXXXXXXXXXXXXXXXX /* Model 2.xcdatamodel */;
-    name = "Model.xcdatamodeld";
-    path = "Model.xcdatamodeld";
-    sourceTree = "<group>";
-    versionGroupType = "wrapper.xcdatamodel";
-};
-```
-
-Key attributes:
-- `children`: List of references to PBXFileReference objects for each model version
-- `currentVersion`: Reference to the current version of the model
-- `name`: Name of the model group
-- `path`: Path to the model group
-- `sourceTree`: How the path is resolved (see Source Tree Constants)
-- `versionGroupType`: Type of the version group, typically "wrapper.xcdatamodel"
 
 ### PBXContainerItemProxy
 
@@ -670,6 +695,36 @@ Example:
     );
     name = Localizable.strings;
     sourceTree = "<group>";
+};
+```
+
+### PBXResourcesBuildPhase
+
+This element represents the resources copy build phase, which is responsible for copying resource files into the final product.
+
+| Attribute                          | Type                   | Value                       | Comment                                                |
+| ---------------------------------- | ---------------------- | --------------------------- | ------------------------------------------------------ |
+| reference                          | UUID                   | A 96 bits identifier        |                                                        |
+| isa                                | PBXResourcesBuildPhase | Empty                       |                                                        |
+| buildActionMask                    | Number                 | 2^32-1                      |                                                        |
+| files                              | List                   | A list of element references | The objects are references to PBXBuildFile elements.   |
+| runOnlyForDeploymentPostprocessing | Number                 | 0                           |                                                        |
+
+Example:
+
+```
+8D1107290486CEB800E47090 /* Resources */ = {
+    isa = PBXResourcesBuildPhase;
+    buildActionMask = 2147483647;
+    files = (
+        535C1E1B10AB6B6300F50231 /* ReadMe.txt in Resources */,
+        533B968312721D05005E617D /* Credits.rtf in Resources */,
+        533B968412721D05005E617D /* InfoPlist.strings in Resources */,
+        533B968512721D05005E617D /* MainMenu.nib in Resources */,
+        533B968612721D05005E617D /* TableEdit.nib in Resources */,
+        533B968712721D05005E617D /* TestWindow.nib in Resources */,
+    );
+    runOnlyForDeploymentPostprocessing = 0;
 };
 ```
 
