@@ -66,6 +66,95 @@ The Xcode project format supports these value types:
 5. **Arrays**: Collections of values enclosed in parentheses (`(item1, item2)`)
 6. **Dictionaries**: Sets of key-value pairs enclosed in braces (`{ key = value; }`)
 
+### Value Quoting Rules
+
+Xcode follows specific rules for when to quote values:
+
+1. **Unquoted values (symbols/identifiers):**
+   - Object types (`isa = PBXFileReference`)
+   - Enumeration values (`lastKnownFileType = sourcecode.cpp.cpp`)
+   - Object IDs/References (UUIDs)
+   - Simple numeric values (`archiveVersion = 1`)
+   - Boolean-like values (`hasScannedForEncodings = 1`)
+   - Source tree constants (`sourceTree = BUILT_PRODUCTS_DIR`)
+   - Simple paths without spaces or special characters (`path = main.cpp`)
+
+2. **Quoted values (strings):**
+   - Values containing spaces (`name = "My Project"`)
+   - Values with special characters (`sourceTree = "<group>"`)
+   - Path names that contain spaces or special characters (`path = "My Files/main.cpp"`)
+   - Type specifiers with special meaning (`explicitFileType = "compiled.mach-o.executable"`)
+   - Version strings (`compatibilityVersion = "Xcode 14.0"`)
+   - Localization identifiers that might have special characters
+
+This distinction helps the Xcode parser interpret the file correctly, distinguishing between references to objects/constants (symbols) and actual string content.
+
+### Built-in Keywords and Constants
+
+Xcode project files use several built-in keywords and constants that have special meaning:
+
+#### Object Classes (isa types)
+
+The `isa` property defines the type of object and must be one of these predefined values:
+
+```
+PBXAggregateTarget        PBXFrameworksBuildPhase    PBXShellScriptBuildPhase
+PBXBuildFile              PBXGroup                   PBXSourcesBuildPhase
+PBXBuildRule              PBXHeadersBuildPhase       PBXTargetDependency
+PBXContainerItemProxy     PBXLegacyTarget            PBXVariantGroup
+PBXCopyFilesBuildPhase    PBXNativeTarget            XCBuildConfiguration
+PBXFileReference          PBXProject                 XCConfigurationList
+PBXReferenceProxy         PBXRezBuildPhase           XCVersionGroup
+```
+
+#### Source Tree Constants
+
+The `sourceTree` property specifies how file paths are resolved and uses these predefined values:
+
+- `<group>`: Path is relative to the group's folder (quoted)
+- `SOURCE_ROOT`: Path is relative to the project's root directory
+- `BUILT_PRODUCTS_DIR`: Path is relative to the build products directory
+- `DEVELOPER_DIR`: Path is relative to the developer directory
+- `SDKROOT`: Path is relative to the SDK directory
+- `ABSOLUTE`: Path is an absolute filesystem path
+
+#### File Type Constants
+
+File type identifiers follow a pattern (`lastKnownFileType` or `explicitFileType`):
+
+- `sourcecode.c.c`: C source code
+- `sourcecode.cpp.cpp`: C++ source code
+- `sourcecode.c.h`: C header
+- `sourcecode.cpp.h`: C++ header
+- `wrapper.framework`: Framework
+- `text.plist`: Property list
+- `text.xcconfig`: Xcode configuration file
+- `file.xib`: XIB file
+- `file.storyboard`: Storyboard file
+- `compiled.mach-o.executable`: Executable binary
+- `compiled.mach-o.dylib`: Dynamic library
+
+#### Product Type Constants
+
+The `productType` property uses these constants:
+
+- `com.apple.product-type.application`: Application
+- `com.apple.product-type.framework`: Framework
+- `com.apple.product-type.library.static`: Static library
+- `com.apple.product-type.library.dynamic`: Dynamic library
+- `com.apple.product-type.bundle`: Bundle
+- `com.apple.product-type.tool`: Command-line tool
+- `com.apple.product-type.unit-test.bundle`: Unit test bundle
+
+#### Boolean-like Constants
+
+These constants are used for boolean settings:
+
+- `YES`: True value
+- `NO`: False value
+- `YES_ERROR`: True with error (for warnings as errors)
+- `YES_AGGRESSIVE`: True with aggressive option
+
 ### Formatting Conventions
 
 - Lines end with semicolons (`;`)
