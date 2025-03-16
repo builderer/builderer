@@ -295,7 +295,7 @@ def format_dict(value_dict: Dict[str, FormattableValue], indent_level: int) -> s
             continue
 
         formatted_value = format_value(value, indent_level + 1)
-        result += f"{inner_indent}{key} = {formatted_value};\n"
+        result += f'{inner_indent}"{key}" = {formatted_value};\n'
 
     result += f"{indent}}}"
     return result

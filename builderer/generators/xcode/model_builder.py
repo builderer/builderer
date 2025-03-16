@@ -16,9 +16,9 @@ from builderer.details.targets.target import Target, BuildTarget
 from builderer.details.targets.cc_binary import CCBinary
 from builderer.details.targets.cc_library import CCLibrary
 from builderer.details.workspace import Workspace, target_full_name
-from builderer.details.variable_expansion import resolve_conditionals
+from builderer.details.variable_expansion import resolve_conditionals, bake_config
 from builderer.details.as_iterator import str_iter
-from builderer.generators.xcode.utils import xcode_project_path
+from builderer.generators.xcode.utils import xcode_project_path, xcode_project_parent
 from builderer.generators.xcode.model import (
     BuildSetting,
     FileType,
@@ -338,6 +338,48 @@ class XcodeProjectBuilder:
 
         return dependency_files
 
+    def get_include_paths(self, config: Config) -> List[str]:
+        """
+        Get the include paths for all dependencies of the target for a specific configuration.
+
+        Args:
+            config: The build configuration to use.
+
+        Returns:
+            A list of include paths relative to the output project directory.
+        """
+        include_paths: List[str] = []
+
+        # Base path for relative path calculation
+        project_dir = xcode_project_parent(config, self.package)
+
+        # Gather include paths for the target
+        if isinstance(self.target, (CCLibrary, CCBinary)):
+            include_paths.extend(
+                os.path.relpath(path, project_dir)
+                for path in resolve_conditionals(config, self.target.private_includes)
+            )
+        if isinstance(self.target, CCLibrary):
+            include_paths.extend(
+                os.path.relpath(path, project_dir)
+                for path in resolve_conditionals(config, self.target.public_includes)
+            )
+
+        # Gather include paths for dependencies
+        for pkg, dep_target in self.workspace.all_dependencies(
+            self.package, self.target
+        ):
+            if isinstance(dep_target, CCLibrary):
+                dep_project_dir = xcode_project_parent(config, pkg)
+                include_paths.extend(
+                    os.path.relpath(include, dep_project_dir)
+                    for include in resolve_conditionals(
+                        config, dep_target.public_includes
+                    )
+                )
+
+        return include_paths
+
     def _get_product_type_for_target(self, target: BuildTarget) -> ProductType:
         """
         Determine the product type for a target.
@@ -421,16 +463,27 @@ class XcodeProjectBuilder:
         config_names = list(str_iter(self.config.build_config))
 
         # Create all target-specific configurations with product name setting
-        build_configs = [
-            self._create_build_configuration(
-                config_name,
-                {
-                    **DEFAULT_BUILD_SETTINGS,
-                    "PRODUCT_NAME": BuildSetting(value=product_name),
-                },
-            )
-            for config_name in config_names
-        ]
+        build_configs: List[XCBuildConfiguration] = []
+        for build_config in str_iter(self.config.build_config):
+            for architecture in str_iter(self.config.architecture):
+                build_configs.append(
+                    self._create_build_configuration(
+                        build_config,
+                        {
+                            **DEFAULT_BUILD_SETTINGS,
+                            "PRODUCT_NAME": BuildSetting(value=product_name),
+                            f"HEADER_SEARCH_PATHS[arch={architecture}]": BuildSetting(
+                                value=self.get_include_paths(
+                                    bake_config(
+                                        self.config,
+                                        architecture=architecture,
+                                        build_config=build_config,
+                                    )
+                                )
+                            ),
+                        },
+                    )
+                )
 
         # Use the first config as default
         default_config_name = config_names[0]
@@ -491,8 +544,8 @@ class XcodeProjectBuilder:
                 proxyType=1,  # 1 indicates a target proxy
                 remoteGlobalIDString=generate_id(full_name),
                 remoteInfo=os.path.relpath(
-                    xcode_project_path(dep_package, dep_target),
-                    xcode_project_path(self.package, self.target),
+                    xcode_project_path(self.config, dep_package, dep_target),
+                    xcode_project_path(self.config, self.package, self.target),
                 ),
             )
             self.container_item_proxies.append(container_proxy)

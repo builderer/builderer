@@ -37,9 +37,7 @@ class XcodeGenerator:
                 project_str = format_xcode_project(xcode_project)
 
                 # Write the project file
-                project_dir = Path(self.config.build_root) / xcode_project_path(
-                    package, target
-                )
+                project_dir = xcode_project_path(self.config, package, target)
                 project_dir.mkdir(parents=True, exist_ok=True)
 
                 project_file = project_dir / "project.pbxproj"
