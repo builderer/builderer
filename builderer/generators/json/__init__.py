@@ -43,21 +43,18 @@ class JsonGenerator:
             "platform": self.base_config.platform,
             "toolchain": self.base_config.toolchain,
             "packages": list(self.workspace.packages.keys()),
-            "targets": [],
-        }
-        # Add target information including path to the target's JSON file
-        for package, target in self.workspace.targets:
-            if not isinstance(target, BuildTarget):
-                continue  # Skip non-build targets
-            # Determine the path to the target's JSON file
-            target_path = self._get_target_json_path(package, target)
-            summary["targets"].append(
+            "targets": [
                 {
                     "name": f"{package.name}:{target.name}",
                     "type": target.__class__.__name__,
-                    "path": os.path.relpath(target_path, self.output_root),
+                    "path": os.path.relpath(
+                        self._get_target_json_path(package, target), self.output_root
+                    ),
                 }
-            )
+                for package, target in self.workspace.targets
+                if isinstance(target, BuildTarget)
+            ],
+        }
         # Write summary to JSON file
         workspace_path = self.output_root.joinpath("workspace.json")
         with open(workspace_path, "w") as f:
