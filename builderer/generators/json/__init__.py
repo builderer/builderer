@@ -5,6 +5,8 @@ from pathlib import Path
 from builderer import Config
 from builderer.details.as_iterator import str_iter
 from builderer.details.targets.target import BuildTarget
+from builderer.details.targets.cc_library import CCLibrary
+from builderer.details.targets.cc_binary import CCBinary
 from builderer.details.workspace import Workspace
 from builderer.details.variable_expansion import bake_config, resolve_conditionals
 from builderer.generators.json.utils import categorize_files
@@ -115,56 +117,67 @@ class JsonGenerator:
             os.path.relpath(src, package_dir) for src in source_files
         ]
         file_categories = categorize_files(relative_source_files)
-        # Process include paths
+        # Process include paths using type checking
         includes = []
-        if hasattr(target, "private_includes"):
+        # Handle C/C++ targets with proper type checking
+        if isinstance(target, (CCLibrary, CCBinary)):
+            # Both libraries and binaries have private includes
             includes.extend(
                 resolve_conditionals(config=config, value=target.private_includes)
             )
-        if hasattr(target, "public_includes"):
-            includes.extend(
-                resolve_conditionals(config=config, value=target.public_includes)
-            )
-        # Add dependency includes
-        for dep_pkg, dep_target in all_deps:
-            if hasattr(dep_target, "public_includes"):
+            # Only libraries have public includes
+            if isinstance(target, CCLibrary):
                 includes.extend(
+                    resolve_conditionals(config=config, value=target.public_includes)
+                )
+        # Add dependency includes from libraries
+        dep_includes = []
+        for dep_pkg, dep_target in all_deps:
+            if isinstance(dep_target, CCLibrary):
+                dep_includes.extend(
                     resolve_conditionals(
                         config=config, value=dep_target.public_includes
                     )
                 )
+        includes.extend(dep_includes)
         # Process compiler flags
         compiler_flags = {}
-        if hasattr(target, "c_flags"):
-            compiler_flags["c_flags"] = resolve_conditionals(
-                config=config, value=target.c_flags
-            )
-        if hasattr(target, "cxx_flags"):
+        if isinstance(target, (CCLibrary, CCBinary)):
+            # C flags
+            if isinstance(target, CCLibrary):
+                compiler_flags["c_flags"] = resolve_conditionals(
+                    config=config, value=target.c_flags
+                )
+            # C++ flags
             compiler_flags["cxx_flags"] = resolve_conditionals(
                 config=config, value=target.cxx_flags
             )
-        # Process linker flags
+        # Process linker flags (only binaries have link flags)
         linker_flags = {}
-        if hasattr(target, "link_flags"):
+        if isinstance(target, CCBinary):
             linker_flags["link_flags"] = resolve_conditionals(
                 config=config, value=target.link_flags
             )
         # Process defines
         defines = []
-        if hasattr(target, "private_defines"):
+        if isinstance(target, (CCLibrary, CCBinary)):
+            # Both libraries and binaries have private defines
             defines.extend(
                 resolve_conditionals(config=config, value=target.private_defines)
             )
-        if hasattr(target, "public_defines"):
-            defines.extend(
-                resolve_conditionals(config=config, value=target.public_defines)
-            )
-        # Add dependency defines
-        for dep_pkg, dep_target in all_deps:
-            if hasattr(dep_target, "public_defines"):
+            # Only libraries have public defines
+            if isinstance(target, CCLibrary):
                 defines.extend(
+                    resolve_conditionals(config=config, value=target.public_defines)
+                )
+        # Add dependency defines
+        dep_defines = []
+        for dep_pkg, dep_target in all_deps:
+            if isinstance(dep_target, CCLibrary):
+                dep_defines.extend(
                     resolve_conditionals(config=config, value=dep_target.public_defines)
                 )
+        defines.extend(dep_defines)
         # Return config-specific data
         return {
             "header_files": file_categories["header_files"],
