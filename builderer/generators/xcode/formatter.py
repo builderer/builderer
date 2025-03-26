@@ -21,6 +21,10 @@ from builderer.generators.xcode.model import (
     YesNo,
     BuildSetting,
     XcodeID,
+    PBXFileReference,
+    PBXGroup,
+    PBXNativeTarget,
+    XCBuildConfiguration,
 )
 
 
@@ -205,8 +209,15 @@ def format_value(value: FormattableValue, indent_level: int) -> str:
     # Handle XcodeObject instances
     elif isinstance(value, XcodeObject):
         obj_id = value.id
-        # If the object has a name attribute, include it as a comment
-        if hasattr(value, "name") and value.name is not None:
+        # Check using isinstance for objects that have a name property
+        # XcodeObject is the base class so we should check specific subclasses that have a name
+        if (
+            isinstance(
+                value,
+                (PBXFileReference, PBXGroup, PBXNativeTarget, XCBuildConfiguration),
+            )
+            and value.name is not None
+        ):
             return f"{obj_id} /* {value.name} */"
         return obj_id
 
@@ -330,6 +341,14 @@ def format_list(value_list: List[FormattableValue], indent_level: int) -> str:
 
 
 def format_enum(value_enum: enum.Enum) -> str:
+    """Format an enum value for Xcode project file.
+
+    Args:
+        value_enum: The enum value to format.
+
+    Returns:
+        The formatted string representation.
+    """
     if isinstance(value_enum.value, str):
         return f'"{value_enum.value}"'
     return str(value_enum.value)

@@ -1,13 +1,25 @@
 from pathlib import Path
 
 from builderer.config import Config
-from builderer.details.package import Package
-from builderer.details.targets.target import Target
 
 
-def xcode_project_parent(config: Config, pkg: Package) -> Path:
-    return Path(config.build_root) / pkg.name
+def validate_xcode_project_path(config: Config) -> Path:
+    """
+    Validate that the build_root ends with .xcodeproj and return the path.
 
+    Args:
+        config: The configuration with the build_root setting.
 
-def xcode_project_path(config: Config, pkg: Package, target: Target) -> Path:
-    return xcode_project_parent(config, pkg) / f"{target.name}.xcodeproj"
+    Returns:
+        The validated project path.
+
+    Raises:
+        ValueError: If the build_root does not end with .xcodeproj.
+    """
+    build_root = Path(config.build_root)
+    if not str(build_root).endswith(".xcodeproj"):
+        raise ValueError(
+            f"Xcode generator requires build_root to end with '.xcodeproj'. "
+            f"Got '{build_root}' instead. Please specify a path ending with '.xcodeproj'."
+        )
+    return build_root
