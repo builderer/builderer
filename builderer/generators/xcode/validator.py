@@ -1,4 +1,4 @@
-from typing import List, Any, Set, Union
+from typing import List, Any, Set, Union, Dict
 from builderer.generators.xcode.model import (
     XcodeProject,
     Reference,
@@ -14,6 +14,7 @@ from builderer.generators.xcode.model import (
     PBXAggregateTarget,
     PBXLegacyTarget,
     ProxyType,
+    BuildSetting,
 )
 from dataclasses import fields, is_dataclass
 import os
@@ -165,3 +166,50 @@ def validate_paths(project: XcodeProject, project_dir: str) -> List[str]:
 
     check_paths(project, "project")
     return errors
+
+
+def _is_xcode_variable(path: Union[str, Any]) -> bool:
+    """Check if a path contains Xcode build setting variables."""
+    if not isinstance(path, str):
+        return False
+    return "$(" in path and ")" in path
+
+
+def validate_output_paths(project: XcodeProject) -> None:
+    """Validate output paths for all targets."""
+    # Track seen paths to detect duplicates
+    seen_paths: Dict[str, str] = {}  # path -> target_name
+
+    # Check each target's output path
+    for target in project.nativeTargets:
+        if not isinstance(target, PBXNativeTarget):
+            continue  # Skip non-native targets
+
+        # Get the output path from the product reference
+        if target.productReference is None:
+            raise ValueError(f"Target {target.name} has no product reference")
+        product_ref = next(
+            ref
+            for ref in project.fileReferences
+            if ref.id == target.productReference.id
+        )
+        output_path = product_ref.path
+
+        # Check for duplicates
+        if output_path in seen_paths:
+            raise ValueError(
+                f"Duplicate output path '{output_path}' for targets '{target.name}' and '{seen_paths[output_path]}'"
+            )
+        seen_paths[output_path] = target.name
+
+        # Check for conflicts with existing files
+        if os.path.exists(output_path):
+            raise ValueError(
+                f"Output path '{output_path}' conflicts with existing file"
+            )
+
+        # Check for invalid filesystem characters
+        if any(c in output_path for c in '<>:"/\\|?*'):
+            raise ValueError(
+                f"Output path '{output_path}' contains invalid filesystem characters"
+            )

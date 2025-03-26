@@ -17,8 +17,8 @@ from builderer.details.targets.target import BuildTarget
 from builderer.details.targets.cc_binary import CCBinary
 from builderer.details.targets.cc_library import CCLibrary
 from builderer.details.workspace import Workspace, target_full_name
-from builderer.details.variable_expansion import resolve_conditionals, bake_config
-from builderer.details.as_iterator import str_iter
+from builderer.details.variable_expansion import resolve_conditionals
+from builderer.details.as_iterator import str_iter, str_scalar
 from builderer.generators.xcode.model import (
     BuildSetting,
     FileType,
@@ -50,6 +50,28 @@ from builderer.generators.xcode.model import (
 
 
 @dataclass(frozen=True)
+class TargetResult:
+    """Result of creating a target."""
+
+    target: PBXNativeTarget
+    file_references: List[PBXFileReference]
+    groups: List[PBXGroup]
+    build_files: List[PBXBuildFile]
+    build_phases: List[
+        Union[
+            PBXSourcesBuildPhase,
+            PBXHeadersBuildPhase,
+            PBXFrameworksBuildPhase,
+            PBXResourcesBuildPhase,
+            PBXCopyFilesBuildPhase,
+            PBXShellScriptBuildPhase,
+        ]
+    ]
+    configurations: List[XCBuildConfiguration]
+    config_list: XCConfigurationList
+
+
+@dataclass(frozen=True)
 class TargetInfo:
     """Immutable information about a target."""
 
@@ -57,93 +79,44 @@ class TargetInfo:
     package: Package
     sources: List[str]  # Paths relative to workspace root
     headers: List[str]  # Paths relative to workspace root
-    output_paths: Dict[str, str]  # config_name -> path relative to project file
-    include_paths: Dict[str, List[str]]  # config_name -> paths relative to project file
     product_type: ProductType
     file_type: FileType
 
     @staticmethod
     def from_target(
-        target: BuildTarget,
+        base_config: Config,
         package: Package,
-        configs: List[Config],
-        workspace_root: Path,
-        project_dir: Path,
-        workspace: Workspace,
+        target: BuildTarget,
     ) -> "TargetInfo":
-        """Create TargetInfo from a target and its configurations."""
+        """Create TargetInfo from a target and its configurations.
+
+        Args:
+            base_config: The base configuration to resolve conditionals with
+            package: The package containing the target
+            target: The target to create info for
+        """
         sources: List[str] = []
         headers: List[str] = []
-        output_paths: Dict[str, str] = {}
-        include_paths: Dict[str, List[str]] = {}
 
         if isinstance(target, (CCBinary, CCLibrary)):
             # Gather sources and headers across all configs
             source_set: Set[str] = set()
             header_set: Set[str] = set()
-            for config in configs:
-                config_name = str(config.build_config)  # Ensure config name is str
-                if isinstance(target, CCLibrary):
-                    # For libraries, headers are part of the public interface
-                    header_paths = resolve_conditionals(config, target.hdrs)
-                    header_set.update(
-                        str(p) for p in header_paths
-                    )  # Ensure paths are str
 
-                    # Sources are internal implementation
-                    source_paths = resolve_conditionals(config, target.srcs)
-                    source_set.update(
-                        str(p) for p in source_paths
-                    )  # Ensure paths are str
+            # Sources and headers should be the same for all configs
+            # Use base_config to verify this and get the values
+            if isinstance(target, CCLibrary):
+                # For libraries, headers are part of the public interface
+                header_paths = resolve_conditionals(base_config, target.hdrs)
+                header_set.update(str(p) for p in header_paths)
 
-                    # Public includes are for dependencies
-                    include_paths[config_name] = [
-                        os.path.relpath(str(inc), str(project_dir))
-                        for inc in target.public_includes
-                    ]
-                    include_paths[config_name].extend(
-                        [
-                            os.path.relpath(str(inc), str(project_dir))
-                            for inc in target.private_includes
-                        ]
-                    )
-                elif isinstance(target, CCBinary):
-                    # For binaries, all sources are implementation
-                    source_paths = resolve_conditionals(config, target.srcs)
-                    source_set.update(
-                        str(p) for p in source_paths
-                    )  # Ensure paths are str
-
-                    # Private includes are for this target only
-                    include_paths[config_name] = []
-
-                    # Add this target's private includes
-                    for i in resolve_conditionals(config, target.private_includes):
-                        include_paths[config_name].append(
-                            os.path.relpath(
-                                str(os.path.join(target.root, i)), str(project_dir)
-                            )
-                        )
-
-                    # Add include paths from dependencies
-                    for pkg, dep_target in workspace.all_dependencies(package, target):
-                        if isinstance(dep_target, CCLibrary):
-                            # Add public includes from library dependencies
-                            for i in resolve_conditionals(
-                                config, dep_target.public_includes
-                            ):
-                                include_paths[config_name].append(
-                                    os.path.relpath(
-                                        str(os.path.join(dep_target.root, i)),
-                                        str(project_dir),
-                                    )
-                                )
-
-                # Get output path for this config
-                output_path = _get_target_output_path(
-                    target, config, package, workspace_root, project_dir
-                )
-                output_paths[config_name] = str(output_path)
+                # Sources are internal implementation
+                source_paths = resolve_conditionals(base_config, target.srcs)
+                source_set.update(str(p) for p in source_paths)
+            else:
+                # For binaries, all sources are implementation
+                source_paths = resolve_conditionals(base_config, target.srcs)
+                source_set.update(str(p) for p in source_paths)
 
             sources = list(source_set)
             headers = list(header_set)
@@ -163,8 +136,6 @@ class TargetInfo:
             package=package,
             sources=sources,
             headers=headers,
-            output_paths=output_paths,
-            include_paths=include_paths,
             product_type=product_type,
             file_type=file_type,
         )
@@ -180,6 +151,7 @@ class ProjectInfo:
     base_config: Config
     workspace_root: Path
     project_dir: Path
+    workspace: Workspace  # Added for dependency resolution
 
     @staticmethod
     def gather(
@@ -201,12 +173,9 @@ class ProjectInfo:
             if not isinstance(target, BuildTarget):
                 continue
             targets[target.name] = TargetInfo.from_target(
-                target=target,
+                base_config=base_config,
                 package=package,
-                configs=configs,
-                workspace_root=workspace.root,
-                project_dir=project_dir,
-                workspace=workspace,
+                target=target,
             )
 
         # Second pass: gather dependencies
@@ -227,33 +196,92 @@ class ProjectInfo:
             base_config=base_config,
             workspace_root=workspace.root,
             project_dir=project_dir,
+            workspace=workspace,  # Store the workspace
         )
 
 
-def _get_target_output_path(
-    target: BuildTarget,
+def get_target_include_paths(
+    target_info: TargetInfo,
     config: Config,
-    package: Package,
-    workspace_root: Path,
-    project_dir: Path,
+    project_info: ProjectInfo,
+) -> List[str]:
+    """Get include paths for a specific config."""
+    if isinstance(target_info.target, CCLibrary):
+        # For libraries, includes are the same for all configs
+        return [
+            os.path.relpath(str(inc), str(project_info.project_dir))
+            for inc in target_info.target.public_includes
+        ] + [
+            os.path.relpath(str(inc), str(project_info.project_dir))
+            for inc in target_info.target.private_includes
+        ]
+    elif isinstance(target_info.target, CCBinary):
+        # For binaries, includes are config-specific
+        includes = []
+        for i in resolve_conditionals(config, target_info.target.private_includes):
+            includes.append(
+                os.path.relpath(
+                    str(os.path.join(target_info.target.root, i)),
+                    str(project_info.project_dir),
+                )
+            )
+
+        # Add include paths from dependencies
+        for pkg, dep_target in project_info.workspace.all_dependencies(
+            target_info.package, target_info.target
+        ):
+            if isinstance(dep_target, CCLibrary):
+                for i in resolve_conditionals(config, dep_target.public_includes):
+                    includes.append(
+                        os.path.relpath(
+                            str(os.path.join(dep_target.root, i)),
+                            str(project_info.project_dir),
+                        )
+                    )
+        return includes
+    else:
+        raise ValueError(f"Unsupported target type: {type(target_info.target)}")
+
+
+def get_target_output_path(
+    target_info: TargetInfo,
+    config: Config,
+    project_info: ProjectInfo,
 ) -> str:
+    package = target_info.package
+    target = target_info.target
     """Get the output path for a target for a specific configuration."""
     # For explicit output paths, use resolve_conditionals
     if target.output_path is not None:
-        output_path = resolve_conditionals(config=config, value=target.output_path)
+        # Create a temporary config with the current build_config value
+        temp_config = Config(
+            platform=config.platform,
+            build_config=config.build_config,  # This is already a single value from str_iter
+            architecture=config.architecture,
+            buildtool=config.buildtool,
+            toolchain=config.toolchain,
+            sandbox_root=config.sandbox_root,
+            build_root=config.build_root,
+        )
+        output_path = str_scalar(
+            resolve_conditionals(config=temp_config, value=target.output_path)
+        )
         # Make path relative to project directory
-        return os.path.relpath(os.path.join(workspace_root, output_path), project_dir)
+        return os.path.relpath(
+            os.path.join(project_info.workspace_root, output_path),
+            project_info.project_dir,
+        )
 
     # For implicit output paths, put them in intermediates directory next to the project
     intermediates_dir = os.path.join(
-        os.path.dirname(project_dir),
-        f"{config.platform}-xcode-obj",
+        os.path.dirname(project_info.project_dir),
+        f"xcode-obj-{config.platform}-{config.build_config}-{config.architecture}",
+        package.name,
         target.name,  # Ensure unique path per target
-        str(config.build_config).lower(),  # Ensure string and convert to lower
     )
 
     # Make path relative to project directory
-    intermediates_dir = os.path.relpath(intermediates_dir, project_dir)
+    intermediates_dir = os.path.relpath(intermediates_dir, project_info.project_dir)
 
     # For libraries, add lib prefix and .a suffix
     if isinstance(target, CCLibrary):
@@ -269,19 +297,20 @@ def create_xcode_project(project_info: ProjectInfo) -> XcodeProject:
     products_group = PBXGroup(name="Products", sourceTree=SourceTree.GROUP, children=[])
     main_group.children.append(Reference(products_group.id, "Products"))
 
-    # Create project-level configuration list
-    project_configs = [
-        XCBuildConfiguration(
-            name=str(config.build_config),  # Ensure string
-            buildSettings={**DEFAULT_BUILD_SETTINGS},
+    # Create project-level configuration list - one config per build config
+    project_configs = []
+    for build_cfg in str_iter(project_info.base_config.build_config):
+        settings = {**DEFAULT_BUILD_SETTINGS}
+        # Add project-wide settings here if needed
+        project_configs.append(
+            XCBuildConfiguration(
+                name=str(build_cfg),
+                buildSettings=settings,
+            )
         )
-        for config in project_info.configs
-    ]
     project_config_list = XCConfigurationList(
         buildConfigurations=[Reference(c.id) for c in project_configs],
-        defaultConfigurationName=str(
-            project_info.configs[0].build_config
-        ),  # Ensure string
+        defaultConfigurationName=str(project_info.base_config.build_config),
     )
 
     # Create project
@@ -299,7 +328,7 @@ def create_xcode_project(project_info: ProjectInfo) -> XcodeProject:
     groups = [main_group, products_group]
     build_files = []
     build_phases = []
-    build_configurations = project_configs
+    build_configurations = project_configs  # Start with project configs
     configuration_lists = [project_config_list]
     target_dependencies = []
     container_item_proxies = []
@@ -330,7 +359,7 @@ def create_xcode_project(project_info: ProjectInfo) -> XcodeProject:
 
             # Create container proxy
             container_proxy = PBXContainerItemProxy(
-                containerPortal=project.id,  # Use string ID directly
+                containerPortal=project.id,
                 proxyType=ProxyType.TARGET_DEPENDENCY,
                 remoteGlobalIDString=dep_target.id,
                 remoteInfo=dep_name,
@@ -339,7 +368,7 @@ def create_xcode_project(project_info: ProjectInfo) -> XcodeProject:
 
             # Create target dependency
             target_dependency = PBXTargetDependency(
-                target=dep_target.id,  # Use string ID directly
+                target=dep_target.id,
                 targetProxy=Reference(container_proxy.id),
             )
             target_dependencies.append(target_dependency)
@@ -359,28 +388,6 @@ def create_xcode_project(project_info: ProjectInfo) -> XcodeProject:
         targetDependencies=target_dependencies,
         containerItemProxies=container_item_proxies,
     )
-
-
-@dataclass(frozen=True)
-class TargetResult:
-    """Result of creating a target."""
-
-    target: PBXNativeTarget
-    file_references: List[PBXFileReference]
-    groups: List[PBXGroup]
-    build_files: List[PBXBuildFile]
-    build_phases: List[
-        Union[
-            PBXSourcesBuildPhase,
-            PBXHeadersBuildPhase,
-            PBXFrameworksBuildPhase,
-            PBXResourcesBuildPhase,
-            PBXCopyFilesBuildPhase,
-            PBXShellScriptBuildPhase,
-        ]
-    ]
-    configurations: List[XCBuildConfiguration]
-    config_list: XCConfigurationList
 
 
 def create_target(target_info: TargetInfo, project_info: ProjectInfo) -> TargetResult:
@@ -436,6 +443,15 @@ def create_target(target_info: TargetInfo, project_info: ProjectInfo) -> TargetR
         )
         header_build_files.append(build_file)
 
+    # Create product reference with unique variable name
+    output_var = f"PRODUCT_OUTPUT_PATH_{target_info.target.name.upper()}"
+    product_ref = PBXFileReference(
+        name=target_info.target.name,
+        path=f"$({output_var})",
+        sourceTree=SourceTree.SOURCE_ROOT,
+        fileType=target_info.file_type,
+    )
+
     # Create build phases
     sources_phase = PBXSourcesBuildPhase(
         files=[Reference(bf.id) for bf in source_build_files]
@@ -443,37 +459,97 @@ def create_target(target_info: TargetInfo, project_info: ProjectInfo) -> TargetR
     headers_phase = PBXHeadersBuildPhase(
         files=[Reference(bf.id) for bf in header_build_files]
     )
+
+    # Create frameworks phase for dependencies
     frameworks_phase = PBXFrameworksBuildPhase(files=[])
 
-    # Create product reference
-    product_ref = PBXFileReference(
-        name=target_info.target.name,
-        path="$(CONFIGURATION_BUILD_DIR)/$(PRODUCT_NAME)",
-        sourceTree=SourceTree.SOURCE_ROOT,
-        fileType=target_info.file_type,
-    )
-
-    # Create configurations
+    # Create configurations - one per build config per target
     target_configs = []
-    for config in project_info.configs:
+    for build_cfg in str_iter(project_info.base_config.build_config):
         settings = {**DEFAULT_BUILD_SETTINGS}
 
         # Add configuration-specific settings
-        config_name = str(config.build_config)  # Ensure string
-        output_path = target_info.output_paths[config_name]
-        output_dir = os.path.dirname(output_path)
-        settings["CONFIGURATION_BUILD_DIR"] = BuildSetting(
-            value=f"$(SRCROOT)/{output_dir}"
-        )
-        settings["PRODUCT_NAME"] = BuildSetting(value=os.path.basename(output_path))
+        config_name = f"{target_info.target.name}-{build_cfg}"  # Unique name per target and config
 
-        # Add include paths
-        if config_name in target_info.include_paths:
-            settings["HEADER_SEARCH_PATHS"] = BuildSetting(
-                value=[
-                    f"$(SRCROOT)/{p}" for p in target_info.include_paths[config_name]
-                ]
+        # Create a base config with just the build config
+        base_config = Config(
+            platform=project_info.base_config.platform,
+            build_config=build_cfg,
+            architecture=project_info.base_config.architecture,
+            buildtool=project_info.base_config.buildtool,
+            toolchain=project_info.base_config.toolchain,
+            sandbox_root=project_info.base_config.sandbox_root,
+            build_root=project_info.base_config.build_root,
+        )
+
+        # For each architecture, create a conditional setting
+        for arch in str_iter(project_info.base_config.architecture):
+            # Create a config with specific architecture
+            arch_config = Config(
+                platform=project_info.base_config.platform,
+                build_config=build_cfg,
+                architecture=arch,
+                buildtool=project_info.base_config.buildtool,
+                toolchain=project_info.base_config.toolchain,
+                sandbox_root=project_info.base_config.sandbox_root,
+                build_root=project_info.base_config.build_root,
             )
+
+            # Get output path for this architecture
+            output_path = get_target_output_path(
+                target_info,
+                arch_config,
+                project_info,
+            )
+
+            # Set the output path directly with architecture condition
+            settings[f"{output_var}[arch={arch}]"] = BuildSetting(value=output_path)
+
+            # Add include paths for this architecture
+            include_paths = get_target_include_paths(
+                target_info,
+                arch_config,
+                project_info,
+            )
+            if include_paths:
+                settings[f"HEADER_SEARCH_PATHS[arch={arch}]"] = BuildSetting(
+                    value=[f"$(SRCROOT)/{p}" for p in include_paths]
+                )
+
+            # Add target-specific compile flags
+            if isinstance(target_info.target, (CCBinary, CCLibrary)):
+                # Add compiler flags from target
+                if target_info.target.c_flags or target_info.target.cxx_flags:
+                    flags = []
+                    if target_info.target.c_flags:
+                        flags.extend(
+                            resolve_conditionals(
+                                arch_config, target_info.target.c_flags
+                            )
+                        )
+                    if target_info.target.cxx_flags:
+                        flags.extend(
+                            resolve_conditionals(
+                                arch_config, target_info.target.cxx_flags
+                            )
+                        )
+                    if flags:
+                        settings[f"OTHER_CFLAGS[arch={arch}]"] = BuildSetting(
+                            value=flags
+                        )
+
+                # Add linker flags from target
+                if (
+                    isinstance(target_info.target, CCBinary)
+                    and target_info.target.link_flags
+                ):
+                    linkopts = resolve_conditionals(
+                        arch_config, target_info.target.link_flags
+                    )
+                    if linkopts:
+                        settings[f"OTHER_LDFLAGS[arch={arch}]"] = BuildSetting(
+                            value=linkopts
+                        )
 
         target_configs.append(
             XCBuildConfiguration(
@@ -485,9 +561,7 @@ def create_target(target_info: TargetInfo, project_info: ProjectInfo) -> TargetR
     # Create configuration list
     config_list = XCConfigurationList(
         buildConfigurations=[Reference(c.id) for c in target_configs],
-        defaultConfigurationName=str(
-            project_info.configs[0].build_config
-        ),  # Ensure string
+        defaultConfigurationName=f"{target_info.target.name}-{project_info.base_config.build_config}",
     )
 
     # Create target
@@ -526,15 +600,9 @@ def generate_xcode_project(config: Config, workspace: Workspace) -> XcodeProject
     Returns:
         The generated XcodeProject.
     """
-    # Gather configurations
-    configs = [
-        bake_config(config, architecture=arch, build_config=build_cfg)
-        for arch in str_iter(config.architecture)
-        for build_cfg in str_iter(config.build_config)
-    ]
-
-    # Gather all project information
-    project_info = ProjectInfo.gather(workspace, config, configs)
+    # For Xcode's build matrix, we need to handle configs and architectures separately
+    # We'll use the original config's build_config and architecture lists
+    project_info = ProjectInfo.gather(workspace, config, [config])
 
     # Create and return project
     return create_xcode_project(project_info)

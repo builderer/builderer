@@ -27,18 +27,19 @@ from pathlib import Path
 
 from builderer import Config
 from builderer.details.workspace import Workspace
+from builderer.details.variable_expansion import bake_config
+from builderer.details.as_iterator import str_iter
 from builderer.generators.xcode.formatter import format_xcode_project
-from builderer.generators.xcode.model_builder import generate_xcode_project
-from builderer.generators.xcode.validator import validate_references, validate_paths
+from builderer.generators.xcode.model_builder import generate_xcode_project, ProjectInfo
+from builderer.generators.xcode.validator import (
+    validate_references,
+    validate_paths,
+    validate_output_paths,
+)
 
 
 def _generate(config: Config, workspace: Workspace) -> None:
-    """Generate an Xcode project from the workspace.
 
-    Args:
-        config: The configuration to use for generation.
-        workspace: The workspace containing all targets.
-    """
     # Generate project model
     project = generate_xcode_project(config, workspace)
 
@@ -46,12 +47,14 @@ def _generate(config: Config, workspace: Workspace) -> None:
     output_root = Path(config.build_root)
     output_root.mkdir(parents=True, exist_ok=True)
 
-    # Validate references and paths
+    # Validate references, paths, and output paths
     if errors := validate_references(project):
         raise ValueError(f"Invalid project: {errors}")
 
     if errors := validate_paths(project, str(output_root.parent)):
         raise ValueError(f"Invalid project paths: {errors}")
+
+    validate_output_paths(project)
 
     # Format and write to disk
     project_str = format_xcode_project(project)
