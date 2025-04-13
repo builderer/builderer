@@ -391,7 +391,8 @@ class MsBuildProject:
             "Project", "$(UserRootDir)\\Microsoft.Cpp.$(Platform).user.props"
         )
         xprop.setAttribute(
-            "Condition", "exists('$(UserRootDir)\\Microsoft.Cpp.$(Platform).user.props')"
+            "Condition",
+            "exists('$(UserRootDir)\\Microsoft.Cpp.$(Platform).user.props')",
         )
         xprop.setAttribute("Label", "LocalAppDataPlatform")
 
