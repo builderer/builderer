@@ -26,5 +26,7 @@ class CCBinary(BuildTarget):
     def get_file_path_fields(self) -> Iterator[Tuple[str, list]]:
         if self.srcs:
             yield "source", self.srcs
+
+    def get_dir_path_fields(self) -> Iterator[Tuple[str, list]]:
         if self.private_includes:
             yield "private", self.private_includes

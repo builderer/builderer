@@ -381,10 +381,11 @@ class MsBuildProject:
         )
         xprop = append_element(xsheet, "Import")
         xprop.setAttribute(
-            "Project", "$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props"
+            "Project", "$(UserRootDir)\\Microsoft.Cpp.$(Platform).user.props"
         )
         xprop.setAttribute(
-            "Condition", "exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')"
+            "Condition",
+            "exists('$(UserRootDir)\\Microsoft.Cpp.$(Platform).user.props')",
         )
         xprop.setAttribute("Label", "LocalAppDataPlatform")
 
@@ -515,7 +516,7 @@ class MsBuildProject:
             self._append_source_files(xproj, group_name, files)
         # Import default cpp properties
         append_element(xproj, "Import").setAttribute(
-            "Project", "$(VCTargetsPath)\Microsoft.Cpp.Default.props"
+            "Project", "$(VCTargetsPath)\\Microsoft.Cpp.Default.props"
         )
         # Configuration properties
         for config in self.build_configs:
@@ -526,7 +527,7 @@ class MsBuildProject:
         append_text_element(xvcpkg, "VcpkgEnabled", "false")
         # Import cpp properties
         append_element(xproj, "Import").setAttribute(
-            "Project", "$(VCTargetsPath)\Microsoft.Cpp.props"
+            "Project", "$(VCTargetsPath)\\Microsoft.Cpp.props"
         )
         # Import app data platform properties
         # TODO: is this needed?
@@ -537,5 +538,5 @@ class MsBuildProject:
             self._append_config_definition_group(xproj, config=config)
         # Import cpp targets
         append_element(xproj, "Import").setAttribute(
-            "Project", "$(VCTargetsPath)\Microsoft.Cpp.targets"
+            "Project", "$(VCTargetsPath)\\Microsoft.Cpp.targets"
         )
