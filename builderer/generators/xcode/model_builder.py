@@ -310,9 +310,14 @@ def create_xcode_project(project_info: ProjectInfo) -> XcodeProject:
         )
     project_config_list = XCConfigurationList(
         buildConfigurations=[Reference(c.id) for c in project_configs],
-        defaultConfigurationName=str(project_info.base_config.build_config),
+        defaultConfigurationName=project_configs[0].name,  # Use first config's name
     )
 
+    # Calculate project directory path relative to .xcodeproj location
+    # build_root is the .xcodeproj path, so we need the directory containing it
+    xcodeproj_dir = os.path.dirname(os.path.join(project_info.workspace_root, project_info.base_config.build_root))
+    project_dir_path = os.path.relpath(str(project_info.workspace_root), xcodeproj_dir)
+    
     # Create project
     project = PBXProject(
         name=project_info.base_config.build_root,
@@ -320,8 +325,13 @@ def create_xcode_project(project_info: ProjectInfo) -> XcodeProject:
         mainGroup=Reference(main_group.id),
         productRefGroup=Reference(products_group.id),
         targets=[],  # Will be filled in later
+        projectDirPath=project_dir_path,
+        projectRoot=project_dir_path,
     )
 
+    # Create file reference registry to avoid duplicates
+    file_ref_registry: Dict[str, PBXFileReference] = {}
+    
     # Process each target
     native_targets = []
     file_references = []
@@ -333,9 +343,9 @@ def create_xcode_project(project_info: ProjectInfo) -> XcodeProject:
     target_dependencies = []
     container_item_proxies = []
 
-    # First pass: create all targets without dependencies
+    # First pass: create all targets and their file references
     for target_name, target_info in project_info.targets.items():
-        target_result = create_target(target_info, project_info)
+        target_result = create_target(target_info, project_info, file_ref_registry)
 
         native_targets.append(target_result.target)
         file_references.extend(target_result.file_references)
@@ -377,7 +387,7 @@ def create_xcode_project(project_info: ProjectInfo) -> XcodeProject:
             target.dependencies.append(Reference(target_dependency.id))
 
     return XcodeProject(
-        fileReferences=file_references,
+        fileReferences=list(file_ref_registry.values()),
         groups=groups,
         buildFiles=build_files,
         buildPhases=build_phases,
@@ -390,14 +400,30 @@ def create_xcode_project(project_info: ProjectInfo) -> XcodeProject:
     )
 
 
-def create_target(target_info: TargetInfo, project_info: ProjectInfo) -> TargetResult:
+def create_target(
+    target_info: TargetInfo, 
+    project_info: ProjectInfo,
+    file_ref_registry: Dict[str, PBXFileReference]
+) -> TargetResult:
     """Create a target and all its associated objects."""
     # Create groups for file organization
     target_group = PBXGroup(
         name=target_info.target.name, sourceTree=SourceTree.GROUP, children=[]
     )
-    sources_group = PBXGroup(name="Sources", sourceTree=SourceTree.GROUP, children=[])
-    headers_group = PBXGroup(name="Headers", sourceTree=SourceTree.GROUP, children=[])
+    sources_group = PBXGroup(
+        name="Sources", 
+        sourceTree=SourceTree.GROUP, 
+        children=[],
+        path=None,  # No path - this is just an organizational group
+        group_id=f"{target_info.target.name}_Sources"  # Make key unique per target
+    )
+    headers_group = PBXGroup(
+        name="Headers", 
+        sourceTree=SourceTree.GROUP, 
+        children=[],
+        path=None,  # No path - this is just an organizational group
+        group_id=f"{target_info.target.name}_Headers"  # Make key unique per target
+    )
     target_group.children.extend(
         [
             Reference(sources_group.id, "Sources"),
@@ -408,14 +434,24 @@ def create_target(target_info: TargetInfo, project_info: ProjectInfo) -> TargetR
     # Create file references and build files for sources
     source_refs = []
     source_build_files = []
+    
+    # Only include this target's own sources (not dependencies)
     for src in target_info.sources:
-        src_path = os.path.relpath(src, project_info.project_dir)
-        file_ref = PBXFileReference(
-            name=os.path.basename(src),
-            path=src_path,
-            sourceTree=SourceTree.SOURCE_ROOT,
-            fileType=FileType.from_extension(os.path.splitext(src)[1]),
-        )
+        # Make paths relative to workspace root
+        src_path = os.path.relpath(src, str(project_info.workspace_root))
+        
+        # Check if file reference already exists
+        if src_path not in file_ref_registry:
+            file_ref = PBXFileReference(
+                name=os.path.basename(src),
+                path=src_path,
+                sourceTree=SourceTree.SOURCE_ROOT,
+                fileType=FileType.from_extension(os.path.splitext(src)[1]),
+            )
+            file_ref_registry[src_path] = file_ref
+        else:
+            file_ref = file_ref_registry[src_path]
+        
         source_refs.append(file_ref)
         sources_group.children.append(Reference(file_ref.id))
 
@@ -427,14 +463,24 @@ def create_target(target_info: TargetInfo, project_info: ProjectInfo) -> TargetR
     # Create file references and build files for headers
     header_refs = []
     header_build_files = []
+    
+    # Only include this target's own headers (not dependencies)
     for hdr in target_info.headers:
-        hdr_path = os.path.relpath(hdr, project_info.project_dir)
-        file_ref = PBXFileReference(
-            name=os.path.basename(hdr),
-            path=hdr_path,
-            sourceTree=SourceTree.SOURCE_ROOT,
-            fileType=FileType.from_extension(os.path.splitext(hdr)[1]),
-        )
+        # Make paths relative to workspace root
+        hdr_path = os.path.relpath(hdr, str(project_info.workspace_root))
+        
+        # Check if file reference already exists
+        if hdr_path not in file_ref_registry:
+            file_ref = PBXFileReference(
+                name=os.path.basename(hdr),
+                path=hdr_path,
+                sourceTree=SourceTree.SOURCE_ROOT,
+                fileType=FileType.from_extension(os.path.splitext(hdr)[1]),
+            )
+            file_ref_registry[hdr_path] = file_ref
+        else:
+            file_ref = file_ref_registry[hdr_path]
+        
         header_refs.append(file_ref)
         headers_group.children.append(Reference(file_ref.id))
 
@@ -443,18 +489,42 @@ def create_target(target_info: TargetInfo, project_info: ProjectInfo) -> TargetR
         )
         header_build_files.append(build_file)
 
-    # Create product reference with unique variable name
-    output_var = f"PRODUCT_OUTPUT_PATH_{target_info.target.name.upper()}"
+    # Create product reference with relative path
+    product_path = f"products/{target_info.target.name}"
     product_ref = PBXFileReference(
         name=target_info.target.name,
-        path=f"$({output_var})",
+        path=product_path,
         sourceTree=SourceTree.SOURCE_ROOT,
         fileType=target_info.file_type,
     )
+    file_ref_registry[product_path] = product_ref
 
+    # For binary targets, include dependency source files in build phase
+    all_source_build_files = list(source_build_files)
+    
+    if isinstance(target_info.target, CCBinary):
+        # Find all dependency source files that should be included in this target's build
+        for pkg, dep_target in project_info.workspace.all_dependencies(
+            target_info.package, target_info.target
+        ):
+            if isinstance(dep_target, CCLibrary):
+                # Get sources from the dependency target
+                dep_sources = resolve_conditionals(project_info.base_config, dep_target.srcs)
+                for src in dep_sources:
+                    src_path = os.path.relpath(str(src), str(project_info.workspace_root))
+                    
+                    # Use existing file reference from registry
+                    if src_path in file_ref_registry:
+                        dep_file_ref = file_ref_registry[src_path]
+                        dep_build_file = PBXBuildFile(
+                            fileRef=Reference(dep_file_ref.id),
+                            name=os.path.basename(str(src))
+                        )
+                        all_source_build_files.append(dep_build_file)
+    
     # Create build phases
     sources_phase = PBXSourcesBuildPhase(
-        files=[Reference(bf.id) for bf in source_build_files]
+        files=[Reference(bf.id) for bf in all_source_build_files]
     )
     headers_phase = PBXHeadersBuildPhase(
         files=[Reference(bf.id) for bf in header_build_files]
@@ -468,8 +538,18 @@ def create_target(target_info: TargetInfo, project_info: ProjectInfo) -> TargetR
     for build_cfg in str_iter(project_info.base_config.build_config):
         settings = {**DEFAULT_BUILD_SETTINGS}
 
-        # Add configuration-specific settings
-        config_name = f"{target_info.target.name}-{build_cfg}"  # Unique name per target and config
+        # Use exact user config names (don't force Debug/Release)
+        config_name = str(build_cfg)
+
+        # Add essential build settings from the documentation
+        settings.update({
+            "PRODUCT_NAME": BuildSetting(value="$(TARGET_NAME)"),
+            "PRODUCT_BUNDLE_IDENTIFIER": BuildSetting(value=f"com.builderer.{target_info.target.name}"),
+            "MACOSX_DEPLOYMENT_TARGET": BuildSetting(value="10.15"),
+            "SDKROOT": BuildSetting(value="macosx"),
+            "SUPPORTED_PLATFORMS": BuildSetting(value="macosx"),
+            "SUPPORTED_ARCHITECTURES": BuildSetting(value=["arm64", "x86_64"]),
+        })
 
         # Create a base config with just the build config
         base_config = Config(
@@ -501,9 +581,6 @@ def create_target(target_info: TargetInfo, project_info: ProjectInfo) -> TargetR
                 arch_config,
                 project_info,
             )
-
-            # Set the output path directly with architecture condition
-            settings[f"{output_var}[arch={arch}]"] = BuildSetting(value=output_path)
 
             # Add include paths for this architecture
             include_paths = get_target_include_paths(
@@ -561,7 +638,7 @@ def create_target(target_info: TargetInfo, project_info: ProjectInfo) -> TargetR
     # Create configuration list
     config_list = XCConfigurationList(
         buildConfigurations=[Reference(c.id) for c in target_configs],
-        defaultConfigurationName=f"{target_info.target.name}-{project_info.base_config.build_config}",
+        defaultConfigurationName=target_configs[0].name,
     )
 
     # Create target
@@ -581,7 +658,7 @@ def create_target(target_info: TargetInfo, project_info: ProjectInfo) -> TargetR
 
     return TargetResult(
         target=target,
-        file_references=[*source_refs, *header_refs, product_ref],
+        file_references=[product_ref],  # Only return product ref, others are in registry
         groups=[target_group, sources_group, headers_group],
         build_files=[*source_build_files, *header_build_files],
         build_phases=[sources_phase, headers_phase, frameworks_phase],

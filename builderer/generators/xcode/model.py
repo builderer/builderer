@@ -227,6 +227,7 @@ class PBXFileReference(XcodeObject):
     path: str
     sourceTree: SourceTree
     fileType: Optional[FileType] = None
+    fileEncoding: int = 4  # UTF-8 encoding, required by Xcode format
 
     def key(self) -> str:
         """Use path for file reference key."""
@@ -341,11 +342,14 @@ class PBXGroup(XcodeObject):
     sourceTree: SourceTree
     children: List[Reference[PBXFileReference]]
     path: Optional[str] = None
+    group_id: Optional[str] = None  # Optional unique identifier for the group
 
     def key(self) -> str:
-        """Use name and path (if available) for group keys."""
+        """Use name, path (if available), and group_id (if available) for group keys."""
         if self.path:
             return f"PBXGroup:{self.name}:{self.path}"
+        elif self.group_id:
+            return f"PBXGroup:{self.name}:{self.group_id}"
         return f"PBXGroup:{self.name}"
 
 

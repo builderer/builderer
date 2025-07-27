@@ -208,8 +208,8 @@ def validate_output_paths(project: XcodeProject) -> None:
                 f"Output path '{output_path}' conflicts with existing file"
             )
 
-        # Check for invalid filesystem characters
-        if any(c in output_path for c in '<>:"/\\|?*'):
+        # Check for invalid filesystem characters (excluding path separators)
+        if any(c in output_path for c in '<>:"|?*'):
             raise ValueError(
                 f"Output path '{output_path}' contains invalid filesystem characters"
             )
