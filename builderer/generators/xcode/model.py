@@ -95,6 +95,7 @@ class FileType(Enum):
     TEXT = "text"
     FOLDER = "folder"
     EXECUTABLE = "compiled.mach-o.executable"
+    ARCHIVE = "archive.ar"
 
     @staticmethod
     def from_extension(ext: str) -> "FileType":
@@ -243,57 +244,61 @@ class PBXBuildFile(XcodeObject):
 
     fileRef: Reference[PBXFileReference]  # Reference to the file
     name: str  # Name of the file
+    target_name: str  # Name of the target this build file belongs to
     settings: Optional[Dict[str, str]] = None  # Build settings for this file
     explicitFileType: Optional[FileType] = None  # Explicit file type
 
     def key(self) -> str:
-        return f"PBXBuildFile:{self.fileRef.id}:{self.name}"
+        return f"PBXBuildFile:{self.fileRef.id}:{self.name}:{self.target_name}"
 
 
 @dataclass
 class PBXSourcesBuildPhase(XcodeObject):
     """A sources build phase in the project. Compiles source files."""
 
-    files: List[Reference[PBXFileReference]]
+    files: List[Reference[PBXBuildFile]]
+    target_name: str  # Name of the target this build phase belongs to
     buildActionMask: int = 2147483647
     runOnlyForDeploymentPostprocessing: int = 0
 
     def key(self) -> str:
-        """Use class name for build phase key."""
-        return f"{self.__class__.__name__}"
+        """Use class name and target name for build phase key."""
+        return f"{self.__class__.__name__}:{self.target_name}"
 
 
 @dataclass
 class PBXHeadersBuildPhase(XcodeObject):
     """A headers build phase in the project. Copies header files."""
 
-    files: List[Reference[PBXFileReference]]
+    files: List[Reference[PBXBuildFile]]
+    target_name: str  # Name of the target this build phase belongs to
     buildActionMask: int = 2147483647
     runOnlyForDeploymentPostprocessing: int = 0
 
     def key(self) -> str:
-        """Use class name for build phase key."""
-        return f"{self.__class__.__name__}"
+        """Use class name and target name for build phase key."""
+        return f"{self.__class__.__name__}:{self.target_name}"
 
 
 @dataclass
 class PBXFrameworksBuildPhase(XcodeObject):
     """A frameworks build phase in the project. Links with frameworks."""
 
-    files: List[Reference[PBXFileReference]]
+    files: List[Reference[PBXBuildFile]]
+    target_name: str  # Name of the target this build phase belongs to
     buildActionMask: int = 2147483647
     runOnlyForDeploymentPostprocessing: int = 0
 
     def key(self) -> str:
-        """Use class name for build phase key."""
-        return f"{self.__class__.__name__}"
+        """Use class name and target name for build phase key."""
+        return f"{self.__class__.__name__}:{self.target_name}"
 
 
 @dataclass
 class PBXResourcesBuildPhase(XcodeObject):
     """A resources build phase in the project. Copies resource files."""
 
-    files: List[Reference[PBXFileReference]]
+    files: List[Reference[PBXBuildFile]]
     buildActionMask: int = 2147483647
     runOnlyForDeploymentPostprocessing: int = 0
 
@@ -306,7 +311,7 @@ class PBXResourcesBuildPhase(XcodeObject):
 class PBXCopyFilesBuildPhase(XcodeObject):
     """A copy files build phase in the project. Copies files to a specified location."""
 
-    files: List[Reference[PBXFileReference]]
+    files: List[Reference[PBXBuildFile]]
     dstPath: str
     dstSubfolderSpec: DstSubfolderSpec
     buildActionMask: int = 2147483647
@@ -321,7 +326,7 @@ class PBXCopyFilesBuildPhase(XcodeObject):
 class PBXShellScriptBuildPhase(XcodeObject):
     """A shell script build phase in the project. Runs a shell script."""
 
-    files: List[Reference[PBXFileReference]]
+    files: List[Reference[PBXBuildFile]]
     shellScript: str
     buildActionMask: int = 2147483647
     runOnlyForDeploymentPostprocessing: int = 0
@@ -340,7 +345,7 @@ class PBXGroup(XcodeObject):
 
     name: str
     sourceTree: SourceTree
-    children: List[Reference[PBXFileReference]]
+    children: List[Reference[Union["PBXGroup", PBXFileReference]]]
     path: Optional[str] = None
     group_id: Optional[str] = None  # Optional unique identifier for the group
 
@@ -468,10 +473,12 @@ class XCBuildConfiguration(XcodeObject):
     name: str
     buildSettings: Dict[str, BuildSetting]
     baseConfigurationReference: Optional[Reference[PBXFileReference]] = None
+    owner: Optional[str] = None  # disambiguate configs across project/targets
 
     def key(self) -> str:
-        """Use name for build configuration key."""
-        return f"XCBuildConfiguration:{self.name}"
+        """Use owner+name for build configuration key to avoid collisions."""
+        owner_part = self.owner if self.owner else "GLOBAL"
+        return f"XCBuildConfiguration:{owner_part}:{self.name}"
 
 
 @dataclass
@@ -571,12 +578,15 @@ class XCConfigurationList(XcodeObject):
     buildConfigurations: List[Reference[XCBuildConfiguration]]
     defaultConfigurationIsVisible: int = 0
     defaultConfigurationName: str = "Release"
+    owner: Optional[str] = None  # disambiguate lists across project/targets
 
     def key(self) -> str:
-        """Use configurations and default name for config list key."""
+        """Use owner + contained config ids + default name to avoid collisions."""
+        owner_part = self.owner if self.owner else "GLOBAL"
         if self.buildConfigurations:
-            return f"XCConfigurationList:{self.buildConfigurations[0].id}:{self.defaultConfigurationName}"
-        return f"XCConfigurationList:{self.defaultConfigurationName}"
+            ids = ",".join(ref.id for ref in self.buildConfigurations)
+            return f"XCConfigurationList:{owner_part}:{ids}:{self.defaultConfigurationName}"
+        return f"XCConfigurationList:{owner_part}:{self.defaultConfigurationName}"
 
 
 # Complete project representation

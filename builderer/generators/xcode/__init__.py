@@ -46,7 +46,7 @@ SUPPORTED_ARCHITECTURES = ["arm64", "x86_64"]
 def _generate(config: Config, workspace: Workspace) -> None:
 
     # Validate build_root ends with .xcodeproj
-    if not config.build_root.endswith('.xcodeproj'):
+    if not config.build_root.endswith(".xcodeproj"):
         raise ValueError(
             f"Xcode generator requires build_root to end with '.xcodeproj'. "
             f"Got '{config.build_root}' instead. Please specify a path ending with '.xcodeproj'."
@@ -74,8 +74,6 @@ def _generate(config: Config, workspace: Workspace) -> None:
     with open(project_file, "w") as f:
         f.write(project_str)
 
-    print(f"Generated Xcode project at {output_root}")
-
 
 class XcodeGenerator:
     """Generator for Xcode projects.
@@ -87,7 +85,7 @@ class XcodeGenerator:
     def __init__(self, config: Config, workspace: Workspace):
         self.config = config
         self.workspace = workspace
-        
+
         # Validate platform, toolchain, and architecture
         if self.config.toolchain not in SUPPORTED_TOOLCHAINS:
             raise ValueError(f"unsupported toolchain {self.config.toolchain}")
