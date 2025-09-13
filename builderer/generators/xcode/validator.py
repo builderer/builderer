@@ -112,7 +112,7 @@ def validate_paths(project: XcodeProject, project_dir: str) -> List[str]:
     for target in (
         project.nativeTargets + project.aggregateTargets + project.legacyTargets
     ):
-        if hasattr(target, "productReference") and target.productReference is not None:
+        if target.productReference is not None:
             product_refs.add(target.productReference.id)
 
     # From products group
