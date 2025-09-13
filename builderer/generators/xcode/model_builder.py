@@ -210,25 +210,15 @@ def get_target_include_paths(
     if isinstance(target_info.target, CCLibrary):
         # For libraries, includes are the same for all configs
         includes_lib: List[str] = []
-        # Add target's own include paths
-        for inc in target_info.target.public_includes:
-            resolved = resolve_conditionals(config, inc)
-            if isinstance(resolved, str):
-                normalized_path = os.path.normpath(resolved)
-                includes_lib.append(normalized_path)
-            else:
-                for p in resolved:
-                    normalized_path = os.path.normpath(str(p))
-                    includes_lib.append(normalized_path)
-        for inc in target_info.target.private_includes:
-            resolved = resolve_conditionals(config, inc)
-            if isinstance(resolved, str):
-                normalized_path = os.path.normpath(resolved)
-                includes_lib.append(normalized_path)
-            else:
-                for p in resolved:
-                    normalized_path = os.path.normpath(str(p))
-                    includes_lib.append(normalized_path)
+        # Add target's own include paths (mirror Make generator approach)
+        for inc in str_iter(
+            resolve_conditionals(config, target_info.target.public_includes)
+        ):
+            includes_lib.append(os.path.normpath(inc))
+        for inc in str_iter(
+            resolve_conditionals(config, target_info.target.private_includes)
+        ):
+            includes_lib.append(os.path.normpath(inc))
         # Deduplicate and stabilize
         seen_lib = set()
         deduped_includes_lib: List[str] = []
@@ -240,24 +230,20 @@ def get_target_include_paths(
     elif isinstance(target_info.target, CCBinary):
         # For binaries, includes are config-specific
         includes_bin: List[str] = []
-        for i in resolve_conditionals(config, target_info.target.private_includes):
-            if isinstance(i, str):
-                includes_bin.append(os.path.normpath(i))
-            else:
-                for p in i:
-                    includes_bin.append(os.path.normpath(str(p)))
+        for inc in str_iter(
+            resolve_conditionals(config, target_info.target.private_includes)
+        ):
+            includes_bin.append(os.path.normpath(inc))
 
         # Add include paths from dependencies
         for pkg, dep_target in project_info.workspace.all_dependencies(
             target_info.package, target_info.target
         ):
             if isinstance(dep_target, CCLibrary):
-                for i in resolve_conditionals(config, dep_target.public_includes):
-                    if isinstance(i, str):
-                        includes_bin.append(os.path.normpath(i))
-                    else:
-                        for p in i:
-                            includes_bin.append(os.path.normpath(str(p)))
+                for inc in str_iter(
+                    resolve_conditionals(config, dep_target.public_includes)
+                ):
+                    includes_bin.append(os.path.normpath(inc))
         # Deduplicate and stabilize
         seen_bin = set()
         deduped_includes_bin: List[str] = []
