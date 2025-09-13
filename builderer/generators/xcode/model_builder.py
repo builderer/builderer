@@ -310,11 +310,6 @@ def create_xcode_project(project_info: ProjectInfo) -> XcodeProject:
     products_group = PBXGroup(name="Products", sourceTree=SourceTree.GROUP, children=[])
     main_group.children.append(Reference(products_group.id, "Products"))
 
-    # Optional global overrides from Config (dict of key->value or per-config dict)
-    project_overrides = getattr(
-        project_info.base_config, "xcode_project_build_settings", None
-    )
-
     # Compute custom build roots to avoid polluting workspace with default 'build'
     project_stem = Path(project_info.base_config.build_root).stem
     build_root_dir = os.path.dirname(project_info.base_config.build_root)
@@ -347,15 +342,6 @@ def create_xcode_project(project_info: ProjectInfo) -> XcodeProject:
                 "AD_HOC_CODE_SIGNING_ALLOWED": BuildSetting(value=YesNo.NO),
             }
         )
-        # Merge global overrides for this config if provided
-        if isinstance(project_overrides, dict):
-            for k, v in project_overrides.items():
-                # Allow per-config dict: { key: {"debug": [...], "release": [...] } }
-                if isinstance(v, dict):
-                    if str(build_cfg) in v:
-                        settings[k] = BuildSetting(value=v[str(build_cfg)])
-                else:
-                    settings[k] = BuildSetting(value=v)
         project_configs.append(
             XCBuildConfiguration(
                 name=str(build_cfg),
@@ -627,13 +613,6 @@ def create_target(
 
     # Create configurations - one per build config per target
     target_configs = []
-    # Optional per-target overrides from Config
-    target_overrides_global = getattr(
-        project_info.base_config, "xcode_target_build_settings", None
-    )
-    target_overrides_by_name = getattr(
-        project_info.base_config, "xcode_target_overrides", None
-    )
 
     # Compute per-project build roots to keep intermediates out of workspace root
     project_stem = Path(project_info.base_config.build_root).stem
@@ -674,34 +653,6 @@ def create_target(
                 "AD_HOC_CODE_SIGNING_ALLOWED": BuildSetting(value=YesNo.NO),
             }
         )
-
-        # Apply target-level overrides
-        def _apply_overrides(overrides: Dict[str, object]):
-            for k, v in overrides.items():
-                if isinstance(v, dict):
-                    if str(build_cfg) in v:
-                        settings[k] = BuildSetting(value=v[str(build_cfg)])
-                else:
-                    # Enforce allowed types for BuildSetting
-                    allowed: object
-                    if isinstance(v, (str, int, float)):
-                        allowed = v
-                    elif isinstance(v, list) and all(isinstance(i, str) for i in v):
-                        allowed = v  # type: ignore[assignment]
-                    elif isinstance(v, YesNo):
-                        allowed = v
-                    else:
-                        allowed = str(v)
-                    settings[k] = BuildSetting(value=allowed)  # type: ignore[arg-type]
-
-        if isinstance(target_overrides_global, dict):
-            _apply_overrides(target_overrides_global)
-        if isinstance(target_overrides_by_name, dict):
-            per_target = target_overrides_by_name.get(target_info.target.name)
-            if isinstance(per_target, dict):
-                _apply_overrides(per_target)
-
-        # No project-structure assumptions: all behavior is driven by flags/defines/includes emitted by rules
 
         # Create a base config with just the build config
         base_config = Config(
