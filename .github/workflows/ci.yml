@@ -37,6 +37,7 @@ jobs:
       matrix:
         python-version: ["pypy3.9", "pypy3.10", "3.9", "3.10", "3.11", "3.12"]
     steps:
+    - uses: mymindstorm/setup-emsdk@v14
     - uses: webfactory/ssh-agent@v0.7.0
       with:
         ssh-private-key: ${{ secrets.CI_SSH_PRIVATE_KEY }}
@@ -68,11 +69,13 @@ jobs:
         source .venv/bin/activate
         cd examples
         builderer --config=linux generate
+        builderer --config=emscripten generate
     - name: Build Examples
       run: |
         cd examples
         make -C Out/build/linux build -j$(nproc) CONFIG=debug
         make -C Out/build/linux build -j$(nproc) CONFIG=release
+        make -C Out/build/emscripten build -j$(nproc)
 
   macOS:
     runs-on: macos-latest
