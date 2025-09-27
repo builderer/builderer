@@ -5,7 +5,8 @@
 
 ## Status
 Builderer is currently a work-in-progress but is capable of generating Visual
-Studio and Makefile build files that can target Windows, Linux and macOS.
+Studio and Makefile build files that can target Windows, Linux, macOS and Web
+Assembly.
 
 ## Examples
 Visit the [example repository](https://github.com/builderer/builderer-examples)

@@ -2,7 +2,7 @@ import os
 
 from copy import deepcopy
 from pathlib import Path
-from typing import TextIO, List
+from typing import TextIO, List, Union
 from xml.dom.minidom import Node, Document, Element
 
 from builderer import Config
@@ -16,6 +16,10 @@ from builderer.details.workspace import Workspace
 from builderer.generators.msbuild.utils import as_msft_path, make_guid, msvc_file_rule
 
 
+# Parent nodes that support appendChild in xml.dom.minidom stubs
+ParentNode = Union[Document, Element]
+
+
 def owner_doc(xnode: Node) -> Document:
     if isinstance(xnode, Document):
         return xnode
@@ -24,23 +28,23 @@ def owner_doc(xnode: Node) -> Document:
         return xnode.ownerDocument
 
 
-def append_comment(xparent: Node, value: str):
+def append_comment(xparent: ParentNode, value: str):
     xparent.appendChild(owner_doc(xparent).createComment(value))
 
 
-def append_text(xparent: Node, value: str) -> Node:
+def append_text(xparent: Element, value: str) -> Node:
     xtext = owner_doc(xparent).createTextNode(value)
     xparent.appendChild(xtext)
     return xtext
 
 
-def append_element(xparent: Node, name: str) -> Element:
+def append_element(xparent: ParentNode, name: str) -> Element:
     xelement = owner_doc(xparent).createElement(name)
     xparent.appendChild(xelement)
     return xelement
 
 
-def append_text_element(xparent: Node, name: str, value: str) -> Element:
+def append_text_element(xparent: ParentNode, name: str, value: str) -> Element:
     xelement = append_element(xparent, name)
     append_text(xelement, value)
     return xelement
@@ -296,7 +300,7 @@ class MsBuildProject:
 
     ### vcxproj support
 
-    def _append_project_configurations(self, xparent: Node):
+    def _append_project_configurations(self, xparent: ParentNode):
         xgroup = append_element(xparent, "ItemGroup")
         xgroup.setAttribute("Label", "ProjectConfigurations")
         for config in self.build_configs:
@@ -309,13 +313,13 @@ class MsBuildProject:
             xplatform = append_element(xprojconfig, "Platform")
             append_text(xplatform, config.architecture)
 
-    def _append_globals(self, xparent: Node):
+    def _append_globals(self, xparent: ParentNode):
         xgroup = append_element(xparent, "PropertyGroup")
         xgroup.setAttribute("Label", "Globals")
         append_text_element(xgroup, "VCProjectVersion", self.VC_PROJECT_VERSION)
         append_text_element(xgroup, "ProjectGuid", self.project_guid)
 
-    def _append_dependencies(self, xparent: Node):
+    def _append_dependencies(self, xparent: ParentNode):
         deps = [
             dep
             for _, dep in self.workspace.direct_dependencies(self.package, self.target)
@@ -336,7 +340,9 @@ class MsBuildProject:
                 ),
             )
 
-    def _append_source_files(self, xparent: Node, group_name: str, files: List[str]):
+    def _append_source_files(
+        self, xparent: ParentNode, group_name: str, files: List[str]
+    ):
         xgroup = append_element(xparent, "ItemGroup")
         append_comment(xgroup, group_name)
         for file in files:
@@ -344,7 +350,7 @@ class MsBuildProject:
                 "Include", as_msft_path(os.path.relpath(file, self.project_root))
             )
 
-    def _append_config_properties(self, xparent: Node, config: Config):
+    def _append_config_properties(self, xparent: ParentNode, config: Config):
         xgroup = append_element(xparent, "PropertyGroup")
         xgroup.setAttribute(
             "Condition",
@@ -379,7 +385,7 @@ class MsBuildProject:
             "$(ProjectDir)\\.obj\\$(MSBuildProjectName)\\$(Platform)-$(Configuration)\\",
         )
 
-    def _append_local_app_data_platform(self, xparent: Node, config: Config):
+    def _append_local_app_data_platform(self, xparent: ParentNode, config: Config):
         xsheet = append_element(xparent, "ImportGroup")
         xsheet.setAttribute("Label", "PropertySheets")
         xsheet.setAttribute(
@@ -396,7 +402,7 @@ class MsBuildProject:
         )
         xprop.setAttribute("Label", "LocalAppDataPlatform")
 
-    def _append_config_definition_group(self, xparent: Node, config: Config):
+    def _append_config_definition_group(self, xparent: ParentNode, config: Config):
         xgroup = append_element(xparent, "ItemDefinitionGroup")
         xgroup.setAttribute(
             "Condition",
@@ -407,7 +413,7 @@ class MsBuildProject:
         if self.requires_linking:
             self._append_link_config(xgroup, config=config)
 
-    def _append_compile_config(self, xparent: Node, config: Config):
+    def _append_compile_config(self, xparent: ParentNode, config: Config):
         assert isinstance(self.target, (CCLibrary, CCBinary))
         xcompile = append_element(xparent, "ClCompile")
         # Parse out compiler flags into settings when possible...
@@ -485,7 +491,7 @@ class MsBuildProject:
             xcompile, "AdditionalIncludeDirectories", ";".join(includes)
         )
 
-    def _append_link_config(self, xparent: Node, config: Config):
+    def _append_link_config(self, xparent: ParentNode, config: Config):
         assert isinstance(self.target, CCBinary)
         xlink = append_element(xparent, "Link")
         # Parse out compiler flags into settings when possible...
@@ -506,7 +512,7 @@ class MsBuildProject:
         xprojref = append_element(xparent, "ProjectReference")
         append_text_element(xprojref, "LinkLibraryDependencies", "true")
 
-    def _append_project(self, xparent: Node):
+    def _append_project(self, xparent: ParentNode):
         xproj = append_element(xparent, "Project")
         xproj.setAttribute("DefaultTargets", "Build")
         xproj.setAttribute("ToolsVersion", self.PROJECT_TOOLS_VERSION)
