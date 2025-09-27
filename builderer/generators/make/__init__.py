@@ -9,8 +9,8 @@ from builderer.generators.make.root_makefile import RootMakefile
 from builderer.generators.make.target_mk import TargetMk
 from builderer.generators.make.utils import build_config_root, is_header_only_library
 
-SUPPORTED_TOOLCHAINS = ["clang", "gcc"]
-SUPPORTED_PLATFORMS = ["linux", "macos"]
+SUPPORTED_TOOLCHAINS = ["clang", "gcc", "emscripten"]
+SUPPORTED_PLATFORMS = ["linux", "macos", "emscripten"]
 SUPPORTED_ARCHITECTURES = {
     "linux": [
         "x86-64",
@@ -37,6 +37,9 @@ SUPPORTED_ARCHITECTURES = {
     "macos": [
         "x86_64",
         "arm64",
+    ],
+    "emscripten": [
+        "wasm32",
     ],
 }
 

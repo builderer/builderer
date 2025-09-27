@@ -60,6 +60,9 @@ PLATFORM_ARCH_FLAGS = {
         "x86_64": "-arch x86_64",
         "arm64": "-arch arm64",
     },
+    "emscripten": {
+        "wasm32": "",
+    },
 }
 
 

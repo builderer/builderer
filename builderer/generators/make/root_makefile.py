@@ -75,19 +75,34 @@ class RootMakefile:
         )
 
         # Toolchain
-        file.writelines(
-            [
-                "ECHO   := echo\n",
-                "MKDIR  := mkdir -p\n",
-                "RM     := rm -f\n",
-                "CC     := gcc\n",
-                "CXX    := g++\n",
-                "CCLD   := g++\n",
-                "AR     := ar\n",
-                "RANLIB := ranlib\n",
-                "\n",
-            ]
-        )
+        if self.config.toolchain == "emscripten":
+            file.writelines(
+                [
+                    "ECHO   := echo\n",
+                    "MKDIR  := mkdir -p\n",
+                    "RM     := rm -f\n",
+                    "CC     := emcc\n",
+                    "CXX    := em++\n",
+                    "CCLD   := emcc\n",
+                    "AR     := emar\n",
+                    "RANLIB := emranlib\n",
+                    "\n",
+                ]
+            )
+        else:
+            file.writelines(
+                [
+                    "ECHO   := echo\n",
+                    "MKDIR  := mkdir -p\n",
+                    "RM     := rm -f\n",
+                    "CC     := gcc\n",
+                    "CXX    := g++\n",
+                    "CCLD   := g++\n",
+                    "AR     := ar\n",
+                    "RANLIB := ranlib\n",
+                    "\n",
+                ]
+            )
 
         # help
         file.writelines(
