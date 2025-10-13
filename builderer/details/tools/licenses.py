@@ -102,4 +102,3 @@ def licenses_main(workspace: Workspace, config: Config) -> None:
             else:
                 print(license_text.rstrip())
             print()
-
