@@ -55,7 +55,7 @@ def build_with_msbuild(
 ) -> int:
     # Locate MSBuild
     vswhere_path = (
-        Path(os.environ.get("ProgramFiles(x86)", "C:\\Program Files (x86)"))
+        Path(os.environ["ProgramFiles(x86)"])
         / "Microsoft Visual Studio"
         / "Installer"
         / "vswhere.exe"
@@ -75,37 +75,26 @@ def build_with_msbuild(
         text=True,
         check=True,
     )
-    msbuild = result.stdout.strip()
+    # vswhere returns multiple paths (one per line), take the first one
+    msbuild = result.stdout.strip().splitlines()[0]
     build_root = Path(config.build_root)
-    # Determine what to build
-    if target_name:
-        # Build specific project
-        pkg_name, tgt_name = target_name.split(":")
-        project_path = build_root / f"{pkg_name}_{tgt_name}.vcxproj"
-        if not project_path.exists():
-            print(f"ERROR: Project file not found: {project_path}")
-            return 1
-        build_target = str(project_path)
-    else:
-        # Build solution
-        solution_path = build_root / "Solution.sln"
-        if not solution_path.exists():
-            print(f"ERROR: Solution file not found: {solution_path}")
-            return 1
-        build_target = str(solution_path)
-    # Build msbuild command
-    msbuild_args = [msbuild, build_target, "/m"]  # Multi-core build
+    # Always build the solution file - it has all the dependencies
+    solution_path = build_root / "Solution.sln"
+    if not solution_path.exists():
+        print(f"ERROR: Solution file not found: {solution_path}")
+        return 1
+    # Build msbuild command - always build the full solution
+    # MSBuild will use incremental builds so this is fast
+    msbuild_args = [msbuild, str(solution_path), "/m"]  # Multi-core build
     # Only specify Configuration/Platform if explicitly requested
     if build_config:
         msbuild_args.append(f"/p:Configuration={build_config}")
     if build_arch:
         msbuild_args.append(f"/p:Platform={build_arch}")
-
     build_result = subprocess.run(msbuild_args)
     if build_result.returncode != 0:
         print(f"Build failed")
         return build_result.returncode
-
     return 0
 
 
