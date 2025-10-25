@@ -1,0 +1,158 @@
+import os
+import subprocess
+import sys
+from pathlib import Path
+from typing import Optional
+from argparse import ArgumentParser
+
+from builderer import Config
+from builderer.details.as_iterator import str_iter
+from builderer.details.workspace import Workspace, target_full_name
+from builderer.generators.make import MakeGenerator
+from builderer.generators.msbuild import MsBuildGenerator
+
+
+def build_with_make(
+    workspace: Workspace,
+    config: Config,
+    target_name: Optional[str],
+    build_config: Optional[str],
+    build_arch: Optional[str],
+) -> int:
+    build_root = Path(config.build_root)
+    # Build make command
+    make_args = [
+        "make",
+        "-C",
+        str(build_root),
+        f"-j{os.cpu_count() or 1}",
+    ]
+    # Only specify ARCH/CONFIG if explicitly requested
+    if build_arch:
+        make_args.append(f"ARCH={build_arch}")
+    if build_config:
+        make_args.append(f"CONFIG={build_config}")
+    # Build makefile target name
+    if target_name:
+        pkg_name, tgt_name = target_name.split(":")
+        make_args.append(f"{pkg_name}@{tgt_name}")
+    else:
+        make_args.append("build")
+    # Run make
+    result = subprocess.run(make_args)
+    if result.returncode != 0:
+        print(f"Build failed")
+        return result.returncode
+    return 0
+
+
+def build_with_msbuild(
+    workspace: Workspace,
+    config: Config,
+    target_name: Optional[str],
+    build_config: Optional[str],
+    build_arch: Optional[str],
+) -> int:
+    # Locate MSBuild
+    vswhere_path = (
+        Path(os.environ.get("ProgramFiles(x86)", "C:\\Program Files (x86)"))
+        / "Microsoft Visual Studio"
+        / "Installer"
+        / "vswhere.exe"
+    )
+    result = subprocess.run(
+        [
+            str(vswhere_path),
+            "-latest",
+            "-requires",
+            "Microsoft.VisualStudio.Component.VC.Tools.x86.x64",
+            "-requires",
+            "Microsoft.Component.MSBuild",
+            "-find",
+            "**\\MSBuild.exe",
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    msbuild = result.stdout.strip()
+    build_root = Path(config.build_root)
+    # Determine what to build
+    if target_name:
+        # Build specific project
+        pkg_name, tgt_name = target_name.split(":")
+        project_path = build_root / f"{pkg_name}_{tgt_name}.vcxproj"
+        if not project_path.exists():
+            print(f"ERROR: Project file not found: {project_path}")
+            return 1
+        build_target = str(project_path)
+    else:
+        # Build solution
+        solution_path = build_root / "Solution.sln"
+        if not solution_path.exists():
+            print(f"ERROR: Solution file not found: {solution_path}")
+            return 1
+        build_target = str(solution_path)
+    # Build msbuild command
+    msbuild_args = [msbuild, build_target, "/m"]  # Multi-core build
+    # Only specify Configuration/Platform if explicitly requested
+    if build_config:
+        msbuild_args.append(f"/p:Configuration={build_config}")
+    if build_arch:
+        msbuild_args.append(f"/p:Platform={build_arch}")
+
+    build_result = subprocess.run(msbuild_args)
+    if build_result.returncode != 0:
+        print(f"Build failed")
+        return build_result.returncode
+
+    return 0
+
+
+def build_main(workspace: Workspace, config: Config, extra_args: list[str]) -> int:
+    parser = ArgumentParser(prog="builderer build")
+    parser.add_argument(
+        "--build_config",
+        type=str,
+        choices=list(str_iter(config.build_config)),
+        help="Specific build configuration to build",
+    )
+    parser.add_argument(
+        "--build_arch",
+        type=str,
+        choices=list(str_iter(config.architecture)),
+        help="Specific architecture to build for",
+    )
+    parser.add_argument(
+        "target",
+        nargs="?",
+        help="Optional specific target to build",
+    )
+    args = parser.parse_args(extra_args)
+    # First, generate build files
+    generator_type = workspace.buildtools[config.buildtool]
+    generator = generator_type(config, workspace)
+    generator()
+    # Build based on the generator type
+    if generator_type is MakeGenerator:
+        return build_with_make(
+            workspace=workspace,
+            config=config,
+            target_name=args.target,
+            build_config=args.build_config,
+            build_arch=args.build_arch,
+        )
+    elif generator_type is MsBuildGenerator:
+        return build_with_msbuild(
+            workspace=workspace,
+            config=config,
+            target_name=args.target,
+            build_config=args.build_config,
+            build_arch=args.build_arch,
+        )
+    else:
+        print(
+            f"ERROR: Unsupported build tool: {generator_type.__name__}",
+            file=sys.stderr,
+        )
+        return 1
