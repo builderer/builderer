@@ -85,7 +85,12 @@ def build_with_msbuild(
         return 1
     # Build msbuild command - always build the full solution
     # MSBuild will use incremental builds so this is fast
-    msbuild_args = [msbuild, str(solution_path), "/m"]  # Multi-core build
+    msbuild_args = [
+        msbuild,
+        str(solution_path),
+        "/verbosity:minimal",
+        "/maxcpucount",
+    ]
     # Only specify Configuration/Platform if explicitly requested
     if build_config:
         msbuild_args.append(f"/p:Configuration={build_config}")
