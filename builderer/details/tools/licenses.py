@@ -57,7 +57,12 @@ def _read_text_file(path: Path) -> str:
         return path.read_text(encoding="latin-1")
 
 
-def licenses_main(workspace: Workspace, config: Config, extra_args: list[str]) -> None:
+def licenses_main(
+    workspace: Workspace,
+    config: Config,
+    top_level_targets: list[str],
+    extra_args: list[str],
+) -> None:
     parser = ArgumentParser(prog="builderer licenses")
     parser.parse_args(extra_args)
     repository_targets = [

@@ -4,6 +4,7 @@ import sys
 from builderer.details.tools.build import build_main
 from builderer.details.tools.generate import generate_main
 from builderer.details.tools.graph import graph_main
+from builderer.details.tools.run import run_main
 from builderer.details.tools.sources import sources_main
 from builderer.details.tools.licenses import licenses_main
 from builderer.details.tools.validate import validate_main
@@ -15,6 +16,7 @@ def main():
         "build": build_main,
         "generate": generate_main,
         "graph": graph_main,
+        "run": run_main,
         "sources": sources_main,
         "validate": validate_main,
         "licenses": licenses_main,
@@ -30,7 +32,12 @@ def main():
     workspace.configure(config=config, filter_target_names=args.targets)
 
     # Pass workspace, config, and unknown args to the command
-    exit_code = COMMANDS[args.command](workspace, config, unknown_args)
+    exit_code = COMMANDS[args.command](
+        workspace=workspace,
+        config=config,
+        top_level_targets=args.targets,
+        extra_args=unknown_args,
+    )
     if exit_code is not None:
         sys.exit(exit_code)
 

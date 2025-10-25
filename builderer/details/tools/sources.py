@@ -5,7 +5,12 @@ from builderer import Config
 from builderer.details.workspace import Workspace
 
 
-def sources_main(workspace: Workspace, config: Config, extra_args: list[str]):
+def sources_main(
+    workspace: Workspace,
+    config: Config,
+    top_level_targets: list[str],
+    extra_args: list[str],
+):
     parser = ArgumentParser(prog="builderer sources")
     parser.parse_args(extra_args)
     # Print source tree

@@ -4,7 +4,12 @@ from builderer import Config
 from builderer.details.workspace import Workspace
 
 
-def validate_main(workspace: Workspace, config: Config, extra_args: list[str]):
+def validate_main(
+    workspace: Workspace,
+    config: Config,
+    top_level_targets: list[str],
+    extra_args: list[str],
+):
     parser = ArgumentParser(prog="builderer validate")
     parser.parse_args(extra_args)
     for pkg_name, pkg in workspace.packages.items():

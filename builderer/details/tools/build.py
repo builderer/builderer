@@ -109,7 +109,48 @@ def build_with_msbuild(
     return 0
 
 
-def build_main(workspace: Workspace, config: Config, extra_args: list[str]) -> int:
+def build_target(
+    workspace: Workspace,
+    config: Config,
+    target_name: Optional[str] = None,
+    build_config: Optional[str] = None,
+    build_arch: Optional[str] = None,
+) -> int:
+    # First, generate build files
+    generator_type = workspace.buildtools[config.buildtool]
+    generator = generator_type(config, workspace)
+    generator()
+    # Build based on the generator type
+    if generator_type is MakeGenerator:
+        return build_with_make(
+            workspace=workspace,
+            config=config,
+            target_name=target_name,
+            build_config=build_config,
+            build_arch=build_arch,
+        )
+    elif generator_type is MsBuildGenerator:
+        return build_with_msbuild(
+            workspace=workspace,
+            config=config,
+            target_name=target_name,
+            build_config=build_config,
+            build_arch=build_arch,
+        )
+    else:
+        print(
+            f"ERROR: Unsupported build tool: {generator_type.__name__}",
+            file=sys.stderr,
+        )
+        return 1
+
+
+def build_main(
+    workspace: Workspace,
+    config: Config,
+    top_level_targets: list[str],
+    extra_args: list[str],
+) -> int:
     parser = ArgumentParser(prog="builderer build")
     parser.add_argument(
         "--build_config",
@@ -129,30 +170,10 @@ def build_main(workspace: Workspace, config: Config, extra_args: list[str]) -> i
         help="Optional specific target to build",
     )
     args = parser.parse_args(extra_args)
-    # First, generate build files
-    generator_type = workspace.buildtools[config.buildtool]
-    generator = generator_type(config, workspace)
-    generator()
-    # Build based on the generator type
-    if generator_type is MakeGenerator:
-        return build_with_make(
-            workspace=workspace,
-            config=config,
-            target_name=args.target,
-            build_config=args.build_config,
-            build_arch=args.build_arch,
-        )
-    elif generator_type is MsBuildGenerator:
-        return build_with_msbuild(
-            workspace=workspace,
-            config=config,
-            target_name=args.target,
-            build_config=args.build_config,
-            build_arch=args.build_arch,
-        )
-    else:
-        print(
-            f"ERROR: Unsupported build tool: {generator_type.__name__}",
-            file=sys.stderr,
-        )
-        return 1
+    return build_target(
+        workspace=workspace,
+        config=config,
+        target_name=args.target,
+        build_config=args.build_config,
+        build_arch=args.build_arch,
+    )
