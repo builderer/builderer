@@ -77,7 +77,9 @@ jobs:
         make -C Out/build/emscripten build -j$(nproc)
     - name: Build Examples
       run: |
+        source .venv/bin/activate
         cd examples
+        rm -rf Out
         builderer --config=linux build --build_config=release
 
   macOS:
@@ -115,7 +117,9 @@ jobs:
         make -C Out/build/macos build -j$(sysctl -n hw.logicalcpu) CONFIG=debug ARCH=x86_64
     - name: Build Examples
       run: |
+        source .venv/bin/activate
         cd examples
+        rm -rf Out
         builderer --config=macos build --build_config=release --build_arch=arm64
 
   Windows:
@@ -155,5 +159,7 @@ jobs:
         msbuild Out\build\windows\Solution.sln /p:Platform=x64 /p:Configuration=debug
     - name: Build Examples
       run: |
+        source .venv/bin/activate
         cd examples
+        rmdir /s Out
         builderer --config=windows build --build_config=release
