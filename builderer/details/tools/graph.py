@@ -1,7 +1,7 @@
 import sys
+from argparse import ArgumentParser
 
-from pathlib import Path
-from typing import List, Dict, TextIO
+from typing import TextIO
 
 from builderer import Config
 from builderer.details.targets.target import PreBuildTarget
@@ -30,5 +30,12 @@ def write_clustered_graph(workspace: Workspace, file: TextIO):
     print("}", file=file)
 
 
-def graph_main(workspace: Workspace, config: Config):
+def graph_main(
+    workspace: Workspace,
+    config: Config,
+    top_level_targets: list[str],
+    extra_args: list[str],
+):
+    parser = ArgumentParser(prog="builderer graph")
+    parser.parse_args(extra_args)
     write_clustered_graph(workspace, sys.stdout)

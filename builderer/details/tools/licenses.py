@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import os
+from argparse import ArgumentParser
 from pathlib import Path
 from typing import Dict, List
 
@@ -57,7 +57,14 @@ def _read_text_file(path: Path) -> str:
         return path.read_text(encoding="latin-1")
 
 
-def licenses_main(workspace: Workspace, config: Config) -> None:
+def licenses_main(
+    workspace: Workspace,
+    config: Config,
+    top_level_targets: list[str],
+    extra_args: list[str],
+) -> None:
+    parser = ArgumentParser(prog="builderer licenses")
+    parser.parse_args(extra_args)
     repository_targets = [
         (pkg, target)
         for pkg in workspace.packages.values()
