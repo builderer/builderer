@@ -161,5 +161,4 @@ jobs:
       run: |
         .venv\Scripts\activate.bat
         cd examples
-        rmdir /s Out
         builderer --config=windows build --build_config=release
