@@ -1,4 +1,3 @@
-from argparse import ArgumentParser
 from pathlib import Path
 
 from builderer import Config
@@ -9,10 +8,11 @@ def sources_main(
     workspace: Workspace,
     config: Config,
     top_level_targets: list[str],
-    extra_args: list[str],
+    command_args: list[str],
+    binary_args: list[str],
 ):
-    parser = ArgumentParser(prog="builderer sources")
-    parser.parse_args(extra_args)
+    assert not command_args
+    assert not binary_args
     # Print source tree
     for pkg in workspace.packages.values():
         print(pkg.name)

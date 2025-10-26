@@ -37,7 +37,8 @@ def run_main(
     workspace: Workspace,
     config: Config,
     top_level_targets: list[str],
-    extra_args: list[str],
+    command_args: list[str],
+    binary_args: list[str],
 ) -> int:
     # Ensure there is a single binary target requested
     if len(top_level_targets) != 1:
@@ -47,14 +48,6 @@ def run_main(
     _, target = workspace.find_target(target_name, None)
     # Validate that the target is a binary
     assert isinstance(target, CCBinary)
-    # Split args on "--" to separate builderer args from binary args
-    if "--" in extra_args:
-        separator_idx = extra_args.index("--")
-        builderer_args = extra_args[:separator_idx]
-        binary_args = extra_args[separator_idx + 1 :]
-    else:
-        builderer_args = extra_args
-        binary_args = []
     # Parse run-specific arguments
     parser = ArgumentParser(prog="builderer run")
     parser.add_argument(
@@ -69,7 +62,7 @@ def run_main(
         choices=list(str_iter(config.architecture)),
         help="Specific architecture to build for",
     )
-    args = parser.parse_args(builderer_args)
+    args = parser.parse_args(command_args)
     # Build the target
     if exit_code := build_target(
         workspace=workspace,
