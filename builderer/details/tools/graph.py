@@ -1,5 +1,4 @@
 import sys
-from argparse import ArgumentParser
 
 from typing import TextIO
 
@@ -34,8 +33,9 @@ def graph_main(
     workspace: Workspace,
     config: Config,
     top_level_targets: list[str],
-    extra_args: list[str],
+    command_args: list[str],
+    binary_args: list[str],
 ):
-    parser = ArgumentParser(prog="builderer graph")
-    parser.parse_args(extra_args)
+    assert not command_args
+    assert not binary_args
     write_clustered_graph(workspace, sys.stdout)

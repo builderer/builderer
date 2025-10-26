@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from argparse import ArgumentParser
 from pathlib import Path
 from typing import Dict, List
 
@@ -61,10 +60,11 @@ def licenses_main(
     workspace: Workspace,
     config: Config,
     top_level_targets: list[str],
-    extra_args: list[str],
+    command_args: list[str],
+    binary_args: list[str],
 ) -> None:
-    parser = ArgumentParser(prog="builderer licenses")
-    parser.parse_args(extra_args)
+    assert not command_args
+    assert not binary_args
     repository_targets = [
         (pkg, target)
         for pkg in workspace.packages.values()

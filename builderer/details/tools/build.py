@@ -143,8 +143,10 @@ def build_main(
     workspace: Workspace,
     config: Config,
     top_level_targets: list[str],
-    extra_args: list[str],
+    command_args: list[str],
+    binary_args: list[str],
 ) -> int:
+    assert not binary_args
     parser = ArgumentParser(prog="builderer build")
     parser.add_argument(
         "--build_config",
@@ -163,7 +165,7 @@ def build_main(
         nargs="?",
         help="Optional specific target to build",
     )
-    args = parser.parse_args(extra_args)
+    args = parser.parse_args(command_args)
     return build_target(
         workspace=workspace,
         config=config,
