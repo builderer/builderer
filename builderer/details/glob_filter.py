@@ -14,12 +14,16 @@ def glob_with_exclusions(root: Path, patterns: Sequence[str]) -> list[str]:
     if not includes:
         return []
     # Collect all files matching include patterns
-    matched = [src.as_posix() for pattern in includes for src in root.glob(pattern)]
+    matched = [
+        (src, src.relative_to(root).as_posix())
+        for pattern in includes
+        for src in root.glob(pattern)
+    ]
     if not excludes:
-        return matched
-    # Filter out files matching any exclude pattern
+        return [src.as_posix() for src, _ in matched]
+    # Filter out files matching any exclude pattern (using relative paths for matching)
     return [
-        path
-        for path in matched
-        if not any(fnmatch.fnmatch(path, exclude) for exclude in excludes)
+        src.as_posix()
+        for src, rel_path in matched
+        if not any(fnmatch.fnmatch(rel_path, exclude) for exclude in excludes)
     ]
