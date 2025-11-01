@@ -356,6 +356,7 @@ class MsBuildProject:
             Path(f) for f in files if is_compile_rule(msvc_file_rule(Path(f)))
         ]
         common_dir = Path(os.path.commonpath(source_files)) if source_files else None
+        has_collisions = len({s.name for s in source_files}) != len(source_files)
 
         for file in files:
             file_path = Path(file)
@@ -365,7 +366,7 @@ class MsBuildProject:
                 "Include", as_msft_path(os.path.relpath(file, self.project_root))
             )
             # For compiled source files, set ObjectFileName relative to common ancestor
-            if is_compile_rule(file_rule) and common_dir:
+            if has_collisions and is_compile_rule(file_rule):
                 rel_path = Path(os.path.relpath(file_path, common_dir))
                 # If file is in common directory, just use filename; otherwise use relative path
                 if rel_path == Path(".") or rel_path == Path():
