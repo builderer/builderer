@@ -369,7 +369,7 @@ class MsBuildProject:
                 rel_path = Path(os.path.relpath(file_path, common_dir))
                 # If file is in common directory, just use filename; otherwise use relative path
                 if rel_path == Path(".") or rel_path == Path():
-                    obj_path = file_path.with_suffix(".obj").name
+                    obj_path = Path(file_path.with_suffix(".obj").name)
                 else:
                     obj_path = rel_path.with_suffix(".obj")
                 append_text_element(
