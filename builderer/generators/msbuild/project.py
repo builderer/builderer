@@ -1,5 +1,6 @@
 import os
 
+from collections import Counter
 from copy import deepcopy
 from pathlib import Path
 from typing import TextIO, List, Union
@@ -356,6 +357,7 @@ class MsBuildProject:
             Path(f) for f in files if is_compile_rule(msvc_file_rule(Path(f)))
         ]
         common_dir = Path(os.path.commonpath(source_files)) if source_files else None
+        filename_freq = Counter([s.name for s in source_files])
 
         for file in files:
             file_path = Path(file)
@@ -365,7 +367,7 @@ class MsBuildProject:
                 "Include", as_msft_path(os.path.relpath(file, self.project_root))
             )
             # For compiled source files, set ObjectFileName relative to common ancestor
-            if is_compile_rule(file_rule) and common_dir:
+            if is_compile_rule(file_rule) and filename_freq[file_path.name] > 1:
                 rel_path = Path(os.path.relpath(file_path, common_dir))
                 # If file is in common directory, just use filename; otherwise use relative path
                 if rel_path == Path(".") or rel_path == Path():
