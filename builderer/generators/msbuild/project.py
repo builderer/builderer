@@ -13,7 +13,12 @@ from builderer.details.targets.cc_library import CCLibrary
 from builderer.details.targets.target import BuildTarget
 from builderer.details.variable_expansion import resolve_conditionals
 from builderer.details.workspace import Workspace
-from builderer.generators.msbuild.utils import as_msft_path, make_guid, msvc_file_rule
+from builderer.generators.msbuild.utils import (
+    as_msft_path,
+    make_guid,
+    msvc_file_rule,
+    is_compile_rule,
+)
 
 
 # Parent nodes that support appendChild in xml.dom.minidom stubs
@@ -345,10 +350,31 @@ class MsBuildProject:
     ):
         xgroup = append_element(xparent, "ItemGroup")
         append_comment(xgroup, group_name)
+
+        # Compute common ancestor directory for source files to create clean object file paths
+        source_files = [
+            Path(f) for f in files if is_compile_rule(msvc_file_rule(Path(f)))
+        ]
+        common_dir = Path(os.path.commonpath(source_files)) if source_files else None
+
         for file in files:
-            append_element(xgroup, msvc_file_rule(Path(file))).setAttribute(
+            file_path = Path(file)
+            file_rule = msvc_file_rule(file_path)
+            xitem = append_element(xgroup, file_rule)
+            xitem.setAttribute(
                 "Include", as_msft_path(os.path.relpath(file, self.project_root))
             )
+            # For compiled source files, set ObjectFileName relative to common ancestor
+            if is_compile_rule(file_rule) and common_dir:
+                rel_path = Path(os.path.relpath(file_path, common_dir))
+                # If file is in common directory, just use filename; otherwise use relative path
+                if rel_path == Path(".") or rel_path == Path():
+                    obj_path = file_path.with_suffix(".obj").name
+                else:
+                    obj_path = rel_path.with_suffix(".obj")
+                append_text_element(
+                    xitem, "ObjectFileName", f"$(IntDir){as_msft_path(obj_path)}"
+                )
 
     def _append_config_properties(self, xparent: ParentNode, config: Config):
         xgroup = append_element(xparent, "PropertyGroup")

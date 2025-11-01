@@ -19,3 +19,7 @@ def msvc_file_rule(path: Path) -> str:
         return "ClInclude"
     else:
         raise ValueError(f"Unsupported file extension for {path}")
+
+
+def is_compile_rule(rule: str) -> bool:
+    return rule == "ClCompile"
