@@ -13,9 +13,9 @@ def make_guid(key: str) -> str:
 
 
 def msvc_file_rule(path: Path) -> str:
-    if path.suffix.lower() in [".cpp", ".cc", ".c"]:
+    if path.suffix.lower() in [".cpp", ".cc", ".cxx", ".c"]:
         return "ClCompile"
-    elif path.suffix.lower() in [".h", ".hpp", ".inl"]:
+    elif path.suffix.lower() in [".h", ".hpp", ".hxx", ".inl", ".inc"]:
         return "ClInclude"
     else:
         raise ValueError(f"Unsupported file extension for {path}")

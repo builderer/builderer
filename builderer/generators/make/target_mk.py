@@ -24,6 +24,7 @@ CC_EXTS = {
 CXX_EXTS = {
     ".cc",
     ".cpp",
+    ".cxx",
     ".mm",
 }
 
