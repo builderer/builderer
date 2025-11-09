@@ -18,7 +18,10 @@ CTX.add_buildtool(
 
 CTX.add_buildtool(
     name = "msbuild",
-    generator = MsBuildGenerator,
+    generator = MsBuildGenerator,  # Currently defaults to Visual Studio 2022
+    # Or specify a version explicitly:
+    # generator = MsBuildGenerator[2022],  # Visual Studio 2022
+    # generator = MsBuildGenerator[2026],  # Visual Studio 2026 (including Insider releases)
 )
 
 # Define a configuration
@@ -33,6 +36,34 @@ CTX.add_config(
     sandbox_root = "build/.sandbox",      # For git_repository and sandboxed targets
 )
 ```
+
+### Visual Studio Version Selection
+
+When using `MsBuildGenerator`, you can specify which version of Visual Studio to target:
+
+```python
+from builderer.generators.msbuild import MsBuildGenerator
+
+# Default: Visual Studio 2022
+CTX.add_buildtool(
+    name = "msbuild",
+    generator = MsBuildGenerator,
+)
+
+# Explicitly specify Visual Studio 2022
+CTX.add_buildtool(
+    name = "msbuild",
+    generator = MsBuildGenerator[2022],
+)
+
+# Specify Visual Studio 2026 (including Insider releases)
+CTX.add_buildtool(
+    name = "msbuild",
+    generator = MsBuildGenerator[2026],
+)
+```
+
+**Note**: The build system will automatically locate the correct Visual Studio installation using `vswhere`, including prerelease/Insider versions when using `MsBuildGenerator[2026]`.
 
 ### Custom Configuration Fields
 

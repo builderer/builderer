@@ -10,6 +10,7 @@ from builderer.details.as_iterator import str_iter
 from builderer.details.workspace import Workspace, target_full_name
 from builderer.generators.make import MakeGenerator
 from builderer.generators.msbuild import MsBuildGenerator
+from builderer.generators.msbuild.version import VS_VERSIONS
 
 
 def build_with_make(
@@ -52,7 +53,10 @@ def build_with_msbuild(
     target_name: Optional[str],
     build_config: Optional[str],
     build_arch: Optional[str],
+    generator: MsBuildGenerator,
 ) -> int:
+    # Determine VS version from generator
+    vs_major, _ = generator._version.visual_studio_version
     # Locate MSBuild
     vswhere_path = (
         Path(os.environ["ProgramFiles(x86)"])
@@ -60,23 +64,35 @@ def build_with_msbuild(
         / "Installer"
         / "vswhere.exe"
     )
+    vswhere_args = [
+        str(vswhere_path),
+        "-version",
+        f"[{vs_major}.0,{vs_major + 1}.0)",
+        "-prerelease",  # for 2026 Insider release support
+        "-latest",
+        "-requires",
+        "Microsoft.VisualStudio.Component.VC.Tools.x86.x64",
+        "-requires",
+        "Microsoft.Component.MSBuild",
+        "-find",
+        "**\\MSBuild.exe",
+    ]
     result = subprocess.run(
-        [
-            str(vswhere_path),
-            "-latest",
-            "-requires",
-            "Microsoft.VisualStudio.Component.VC.Tools.x86.x64",
-            "-requires",
-            "Microsoft.Component.MSBuild",
-            "-find",
-            "**\\MSBuild.exe",
-        ],
+        vswhere_args,
         capture_output=True,
         text=True,
         check=True,
     )
     # vswhere returns multiple paths (one per line), take the first one
-    msbuild = result.stdout.strip().splitlines()[0]
+    msbuild_paths = result.stdout.strip().splitlines()
+    if not msbuild_paths:
+        print(
+            f"ERROR: Could not find MSBuild for Visual Studio {vs_major}.0. "
+            f"Please ensure Visual Studio {vs_major}.0 is installed with the required components.",
+            file=sys.stderr,
+        )
+        return 1
+    msbuild = msbuild_paths[0]
     build_root = Path(config.build_root)
     # Always build the solution file - it has all the dependencies
     solution_path = build_root / "Solution.sln"
@@ -123,13 +139,14 @@ def build_target(
             build_config=build_config,
             build_arch=build_arch,
         )
-    elif generator_type is MsBuildGenerator:
+    elif isinstance(generator, MsBuildGenerator):
         return build_with_msbuild(
             workspace=workspace,
             config=config,
             target_name=target_name,
             build_config=build_config,
             build_arch=build_arch,
+            generator=generator,
         )
     else:
         print(
