@@ -20,6 +20,7 @@ from builderer.generators.msbuild.utils import (
     msvc_file_rule,
     is_compile_rule,
 )
+from builderer.generators.msbuild.version import VisualStudioVersion
 
 
 # Parent nodes that support appendChild in xml.dom.minidom stubs
@@ -204,11 +205,6 @@ DEFAULT_LINK_SETTINGS = {
 
 
 class MsBuildProject:
-    PROJECT_TOOLS_VERSION = "17.0"
-    FILTERS_TOOLS_VERSION = "4.0"
-    VC_PROJECT_VERSION = "16.0"
-    PLATFORM_TOOLSET = "v143"
-    WINDOWS_TARGET_PLATFORM_VERSION = "10.0"
     CHARACTER_SET = "Unicode"
 
     def __init__(
@@ -217,7 +213,9 @@ class MsBuildProject:
         workspace: Workspace,
         package: Package,
         target: BuildTarget,
+        version: VisualStudioVersion,
     ):
+        self.version = version
         self.base_config = config
         self.workspace = workspace
         self.package = package
@@ -247,7 +245,7 @@ class MsBuildProject:
     def generate_filters(self):
         xdoc = Document()
         xproj = append_element(xdoc, "Project")
-        xproj.setAttribute("ToolsVersion", self.FILTERS_TOOLS_VERSION)
+        xproj.setAttribute("ToolsVersion", self.version.filters_tools_version)
         xproj.setAttribute(
             "xmlns", "http://schemas.microsoft.com/developer/msbuild/2003"
         )
@@ -322,7 +320,7 @@ class MsBuildProject:
     def _append_globals(self, xparent: ParentNode):
         xgroup = append_element(xparent, "PropertyGroup")
         xgroup.setAttribute("Label", "Globals")
-        append_text_element(xgroup, "VCProjectVersion", self.VC_PROJECT_VERSION)
+        append_text_element(xgroup, "VCProjectVersion", self.version.vc_project_version)
         append_text_element(xgroup, "ProjectGuid", self.project_guid)
 
     def _append_dependencies(self, xparent: ParentNode):
@@ -387,7 +385,7 @@ class MsBuildProject:
         xgroup.setAttribute("Label", "Configuration")
         append_text_element(xgroup, "ConfigurationType", self.configuration_type)
         append_text_element(xgroup, "UseDebugLibraries", "true")  # TODO
-        append_text_element(xgroup, "PlatformToolset", self.PLATFORM_TOOLSET)
+        append_text_element(xgroup, "PlatformToolset", self.version.platform_toolset)
         append_text_element(xgroup, "CharacterSet", self.CHARACTER_SET)
         if isinstance(self.target, CCBinary):
             out_path = as_msft_path(
@@ -543,7 +541,7 @@ class MsBuildProject:
     def _append_project(self, xparent: ParentNode):
         xproj = append_element(xparent, "Project")
         xproj.setAttribute("DefaultTargets", "Build")
-        xproj.setAttribute("ToolsVersion", self.PROJECT_TOOLS_VERSION)
+        xproj.setAttribute("ToolsVersion", self.version.project_tools_version)
         xproj.setAttribute(
             "xmlns", "http://schemas.microsoft.com/developer/msbuild/2003"
         )

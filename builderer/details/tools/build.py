@@ -123,7 +123,7 @@ def build_target(
             build_config=build_config,
             build_arch=build_arch,
         )
-    elif generator_type is MsBuildGenerator:
+    elif isinstance(generator, MsBuildGenerator):
         return build_with_msbuild(
             workspace=workspace,
             config=config,
