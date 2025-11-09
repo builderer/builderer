@@ -245,7 +245,7 @@ class MsBuildProject:
     def generate_filters(self):
         xdoc = Document()
         xproj = append_element(xdoc, "Project")
-        xproj.setAttribute("ToolsVersion", self.version.filters_tools_version)
+        xproj.setAttribute("ToolsVersion", self.version.filters_tools_version_str)
         xproj.setAttribute(
             "xmlns", "http://schemas.microsoft.com/developer/msbuild/2003"
         )
@@ -320,7 +320,9 @@ class MsBuildProject:
     def _append_globals(self, xparent: ParentNode):
         xgroup = append_element(xparent, "PropertyGroup")
         xgroup.setAttribute("Label", "Globals")
-        append_text_element(xgroup, "VCProjectVersion", self.version.vc_project_version)
+        append_text_element(
+            xgroup, "VCProjectVersion", self.version.vc_project_version_str
+        )
         append_text_element(xgroup, "ProjectGuid", self.project_guid)
 
     def _append_dependencies(self, xparent: ParentNode):
@@ -541,7 +543,7 @@ class MsBuildProject:
     def _append_project(self, xparent: ParentNode):
         xproj = append_element(xparent, "Project")
         xproj.setAttribute("DefaultTargets", "Build")
-        xproj.setAttribute("ToolsVersion", self.version.project_tools_version)
+        xproj.setAttribute("ToolsVersion", self.version.project_tools_version_str)
         xproj.setAttribute(
             "xmlns", "http://schemas.microsoft.com/developer/msbuild/2003"
         )
