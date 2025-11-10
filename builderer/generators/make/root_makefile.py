@@ -14,6 +14,36 @@ from builderer.generators.make.utils import (
     is_header_only_library,
 )
 
+COMMON_TOOLS = {
+    "ECHO": "echo",
+    "MKDIR": "mkdir -p",
+    "RM": "rm -f",
+}
+
+TOOLCHAIN_TOOLS = {
+    "emscripten": {
+        "CC": "emcc",
+        "CXX": "em++",
+        "CCLD": "emcc",
+        "AR": "emar",
+        "RANLIB": "emranlib",
+    },
+    "gcc": {
+        "CC": "gcc",
+        "CXX": "g++",
+        "CCLD": "g++",
+        "AR": "ar",
+        "RANLIB": "ranlib",
+    },
+    "clang": {
+        "CC": "clang",
+        "CXX": "clang++",
+        "CCLD": "clang++",
+        "AR": "ar",
+        "RANLIB": "ranlib",
+    },
+}
+
 
 class RootMakefile:
     def __init__(self, config: Config, workspace: Workspace):
@@ -74,35 +104,18 @@ class RootMakefile:
             ]
         )
 
-        # Toolchain
-        if self.config.toolchain == "emscripten":
-            file.writelines(
-                [
-                    "ECHO   := echo\n",
-                    "MKDIR  := mkdir -p\n",
-                    "RM     := rm -f\n",
-                    "CC     := emcc\n",
-                    "CXX    := em++\n",
-                    "CCLD   := emcc\n",
-                    "AR     := emar\n",
-                    "RANLIB := emranlib\n",
-                    "\n",
-                ]
-            )
-        else:
-            file.writelines(
-                [
-                    "ECHO   := echo\n",
-                    "MKDIR  := mkdir -p\n",
-                    "RM     := rm -f\n",
-                    "CC     := gcc\n",
-                    "CXX    := g++\n",
-                    "CCLD   := g++\n",
-                    "AR     := ar\n",
-                    "RANLIB := ranlib\n",
-                    "\n",
-                ]
-            )
+        # Toolchain variables...
+        file.writelines(
+            [
+                *sorted(
+                    f"{k} := {v}\n"
+                    for k, v in (
+                        COMMON_TOOLS | TOOLCHAIN_TOOLS[self.config.toolchain]
+                    ).items()
+                ),
+                "\n",
+            ]
+        )
 
         # help
         file.writelines(

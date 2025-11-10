@@ -290,7 +290,7 @@ class TargetMk:
                     f"{self.out_path}: $({objs_var})\n",
                     f"\t@$(ECHO) Archiving $@\n" f"\t@$(MKDIR) $(dir $@)\n",
                     f"\t@$(RM) $@\n",
-                    f"\t@$(AR) Scq $@ $^\n",
+                    f"\t@$(AR) rcS $@ $^\n",
                     f"\t@$(RANLIB) $@\n",
                     "\n",
                 ]
