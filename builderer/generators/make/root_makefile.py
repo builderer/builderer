@@ -89,7 +89,7 @@ class RootMakefile:
                     "\n",
                 ]
             )
-        else:
+        elif self.config.toolchain == "gcc":
             file.writelines(
                 [
                     "ECHO   := echo\n",
@@ -103,6 +103,22 @@ class RootMakefile:
                     "\n",
                 ]
             )
+        elif self.config.toolchain == "clang":
+            file.writelines(
+                [
+                    "ECHO   := echo\n",
+                    "MKDIR  := mkdir -p\n",
+                    "RM     := rm -f\n",
+                    "CC     := clang\n",
+                    "CXX    := clang++\n",
+                    "CCLD   := clang++\n",
+                    "AR     := ar\n",
+                    "RANLIB := ranlib\n",
+                    "\n",
+                ]
+            )
+        else:
+            raise ValueError(f"Unknown toolchain {self.config.toolchain}")
 
         # help
         file.writelines(
