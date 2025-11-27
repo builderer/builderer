@@ -6,7 +6,7 @@ from typing import Optional
 from argparse import ArgumentParser
 
 from builderer import Config
-from builderer.details.as_iterator import str_iter, as_scalar
+from builderer.details.as_iterator import str_iter
 from builderer.details.workspace import Workspace
 from builderer.details.targets.cc_binary import CCBinary
 from builderer.details.tools.build import build_target
