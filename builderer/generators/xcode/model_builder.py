@@ -630,7 +630,8 @@ def create_xcode_project(project_info: ProjectInfo) -> XcodeProject:
                     value=f"$(OBJROOT)/SharedPrecompiledHeaders"
                 ),
                 "ALWAYS_SEARCH_USER_PATHS": BuildSetting(value=YesNo.NO),
-                "ALWAYS_USE_SEPARATE_HEADERMAPS": BuildSetting(value=YesNo.YES),
+                # Disable header maps: they cause include collisions
+                "USE_HEADERMAP": BuildSetting(value=YesNo.NO),
                 "CODE_SIGNING_ALLOWED": BuildSetting(value=YesNo.NO),
                 "AD_HOC_CODE_SIGNING_ALLOWED": BuildSetting(value=YesNo.NO),
             }
