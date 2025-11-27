@@ -381,7 +381,6 @@ class PBXNativeTarget(XcodeObject):
         Reference[
             Union[
                 PBXSourcesBuildPhase,
-                PBXHeadersBuildPhase,
                 PBXFrameworksBuildPhase,
                 PBXResourcesBuildPhase,
                 PBXCopyFilesBuildPhase,
@@ -481,7 +480,6 @@ class XcodeProject:
     buildPhases: List[
         Union[
             PBXSourcesBuildPhase,
-            PBXHeadersBuildPhase,
             PBXFrameworksBuildPhase,
             PBXResourcesBuildPhase,
             PBXCopyFilesBuildPhase,
