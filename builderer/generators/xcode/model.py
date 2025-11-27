@@ -1,10 +1,8 @@
-"""
-Xcode project file model.
-
-This module defines the data model for an Xcode project file (.pbxproj).
-It includes classes that accurately represent the object types and their relationships
-as documented in the Xcode project file format.
-"""
+# Xcode project file model.
+#
+# This module defines the data model for an Xcode project file (.pbxproj).
+# It includes classes that accurately represent the object types and their relationships
+# as documented in the Xcode project file format.
 
 from dataclasses import dataclass, field
 from enum import Enum, auto
@@ -16,33 +14,15 @@ import uuid
 
 # Type definition for Xcode object identifiers
 class XcodeID(str):
-    """
-    A specialized string class for Xcode object identifiers.
-
-    This is used to distinguish Xcode IDs from regular strings,
-    allowing for proper formatting in pbxproj files.
-    """
-
     pass
 
 
 def generate_id(key: str) -> XcodeID:
-    """
-    Generate a deterministic ID based on a key using UUID5.
-
-    Args:
-        key: The key to use for ID generation.
-
-    Returns:
-        A 24-character hexadecimal ID as an XcodeID type.
-    """
     return XcodeID(uuid.uuid5(uuid.NAMESPACE_X500, key).hex.upper()[:24])
 
 
 # Source Tree values used in PBXFileReference and PBXGroup
 class SourceTree(Enum):
-    """Possible values for the sourceTree property."""
-
     GROUP = "<group>"  # Path is relative to the group's folder
     SOURCE_ROOT = "SOURCE_ROOT"  # Path is relative to the project's root directory
     BUILT_PRODUCTS_DIR = (
@@ -55,8 +35,6 @@ class SourceTree(Enum):
 
 # Destination subfolder specifications used in PBXCopyFilesBuildPhase
 class DstSubfolderSpec(Enum):
-    """Possible values for the dstSubfolderSpec property in PBXCopyFilesBuildPhase."""
-
     ABSOLUTE_PATH = 0  # Absolute path
     WRAPPER = 1  # App bundle
     EXECUTABLES = 2  # Executables
@@ -73,8 +51,6 @@ class DstSubfolderSpec(Enum):
 
 # File types used in PBXFileReference
 class FileType(Enum):
-    """Possible file types for PBXFileReference."""
-
     C = "sourcecode.c.c"
     CPP = "sourcecode.cpp.cpp"
     C_HEADER = "sourcecode.c.h"
@@ -99,15 +75,6 @@ class FileType(Enum):
 
     @staticmethod
     def from_extension(ext: str) -> "FileType":
-        """
-        Get the file type from a file extension.
-
-        Args:
-            ext: The file extension (with or without the dot).
-
-        Returns:
-            The corresponding FileType.
-        """
         if ext.startswith("."):
             ext = ext[1:]
 
@@ -136,8 +103,6 @@ class FileType(Enum):
 
 # Product types used in PBXNativeTarget
 class ProductType(Enum):
-    """Possible values for the productType property."""
-
     APPLICATION = "com.apple.product-type.application"
     FRAMEWORK = "com.apple.product-type.framework"
     STATIC_LIBRARY = "com.apple.product-type.library.static"
@@ -150,8 +115,6 @@ class ProductType(Enum):
 
 # Boolean-like values used in build settings
 class YesNo(Enum):
-    """Boolean-like values used in build settings."""
-
     YES = "YES"
     NO = "NO"
     YES_ERROR = "YES_ERROR"
@@ -159,21 +122,16 @@ class YesNo(Enum):
 
 
 class ProxyType(Enum):
-    """Possible values for the proxyType property in PBXContainerItemProxy."""
-
     TARGET_DEPENDENCY = 1  # For target dependencies
     PRODUCT_REFERENCE = 2  # For product references
 
     def to_xcode(self) -> int:
-        """Convert to Xcode's native integer representation."""
         return self.value
 
 
 # Build setting with type-safe value
 @dataclass
 class BuildSetting:
-    """A build setting value."""
-
     value: Union[YesNo, int, float, str, List[str]]
 
 
@@ -182,13 +140,6 @@ ReferenceT = TypeVar("ReferenceT", bound="XcodeObject")
 
 @dataclass
 class Reference(Generic[ReferenceT]):
-    """
-    A reference to another object in the project file.
-
-    Type Args:
-        ReferenceT: The type of object being referenced. Must be a subclass of XcodeObject.
-    """
-
     id: XcodeID
     comment: Optional[str] = None
 
@@ -196,34 +147,20 @@ class Reference(Generic[ReferenceT]):
 # Base class for all Xcode objects
 @dataclass
 class XcodeObject(ABC):
-    """Base class for all Xcode objects."""
-
     # ID will be generated in __post_init__
     id: XcodeID = field(init=False)
 
     def __post_init__(self) -> None:
-        """Generate a unique ID based on the object's key."""
         self.id = generate_id(self.key())
 
     @abstractmethod
     def key(self) -> str:
-        """
-        Generate a unique key string for this object.
-
-        Each subclass MUST override this method to provide a specific key.
-        The key should be deterministic and unique for the object.
-
-        Returns:
-            A string key that uniquely identifies this object.
-        """
         pass
 
 
 # PBX* object types
 @dataclass
 class PBXFileReference(XcodeObject):
-    """A file reference in the project. Represents a file on disk."""
-
     name: str
     path: str
     sourceTree: SourceTree
@@ -237,11 +174,6 @@ class PBXFileReference(XcodeObject):
 
 @dataclass
 class PBXBuildFile(XcodeObject):
-    """A build file entry in the project.
-
-    This represents a file that is included in a target's build phase.
-    """
-
     fileRef: Reference[PBXFileReference]  # Reference to the file
     name: str  # Name of the file
     target_name: str  # Name of the target this build file belongs to
@@ -254,8 +186,6 @@ class PBXBuildFile(XcodeObject):
 
 @dataclass
 class PBXSourcesBuildPhase(XcodeObject):
-    """A sources build phase in the project. Compiles source files."""
-
     files: List[Reference[PBXBuildFile]]
     target_name: str  # Name of the target this build phase belongs to
     buildActionMask: int = 2147483647
@@ -268,8 +198,6 @@ class PBXSourcesBuildPhase(XcodeObject):
 
 @dataclass
 class PBXHeadersBuildPhase(XcodeObject):
-    """A headers build phase in the project. Copies header files."""
-
     files: List[Reference[PBXBuildFile]]
     target_name: str  # Name of the target this build phase belongs to
     buildActionMask: int = 2147483647
@@ -282,8 +210,6 @@ class PBXHeadersBuildPhase(XcodeObject):
 
 @dataclass
 class PBXFrameworksBuildPhase(XcodeObject):
-    """A frameworks build phase in the project. Links with frameworks."""
-
     files: List[Reference[PBXBuildFile]]
     target_name: str  # Name of the target this build phase belongs to
     buildActionMask: int = 2147483647
@@ -296,8 +222,6 @@ class PBXFrameworksBuildPhase(XcodeObject):
 
 @dataclass
 class PBXResourcesBuildPhase(XcodeObject):
-    """A resources build phase in the project. Copies resource files."""
-
     files: List[Reference[PBXBuildFile]]
     buildActionMask: int = 2147483647
     runOnlyForDeploymentPostprocessing: int = 0
@@ -309,8 +233,6 @@ class PBXResourcesBuildPhase(XcodeObject):
 
 @dataclass
 class PBXCopyFilesBuildPhase(XcodeObject):
-    """A copy files build phase in the project. Copies files to a specified location."""
-
     files: List[Reference[PBXBuildFile]]
     dstPath: str
     dstSubfolderSpec: DstSubfolderSpec
@@ -324,8 +246,6 @@ class PBXCopyFilesBuildPhase(XcodeObject):
 
 @dataclass
 class PBXShellScriptBuildPhase(XcodeObject):
-    """A shell script build phase in the project. Runs a shell script."""
-
     files: List[Reference[PBXBuildFile]]
     shellScript: str
     buildActionMask: int = 2147483647
@@ -341,8 +261,6 @@ class PBXShellScriptBuildPhase(XcodeObject):
 
 @dataclass
 class PBXGroup(XcodeObject):
-    """A group in the project. Represents a group or folder in the project navigator."""
-
     name: str
     sourceTree: SourceTree
     children: List[Reference[Union["PBXGroup", PBXFileReference]]]
@@ -360,8 +278,6 @@ class PBXGroup(XcodeObject):
 
 @dataclass
 class PBXVariantGroup(XcodeObject):
-    """A variant group in the project. For localized resources."""
-
     name: str
     children: List[Reference[PBXFileReference]]
     sourceTree: SourceTree
@@ -376,8 +292,6 @@ class PBXVariantGroup(XcodeObject):
 
 @dataclass
 class XCVersionGroup(XcodeObject):
-    """A version group in the project. Represents a versioned Core Data model."""
-
     name: str
     children: List[Reference[PBXFileReference]]
     currentVersion: Reference[PBXFileReference]
@@ -393,12 +307,6 @@ class XCVersionGroup(XcodeObject):
 
 @dataclass
 class PBXContainerItemProxy(XcodeObject):
-    """A proxy for referencing items in other projects.
-
-    This represents a reference to an item in another project, such as a target
-    or a product.
-    """
-
     containerPortal: str  # ID of the PBXProject
     remoteGlobalIDString: str  # ID of the referenced item
     remoteInfo: str  # Name of the referenced item
@@ -410,12 +318,6 @@ class PBXContainerItemProxy(XcodeObject):
 
 @dataclass
 class PBXReferenceProxy(XcodeObject):
-    """A proxy for referencing products from other projects.
-
-    This represents a reference to a product (like a library or framework) that
-    is built by another project.
-    """
-
     remoteRef: Reference[
         PBXContainerItemProxy
     ]  # Points to proxy that describes how to get the file
@@ -430,12 +332,6 @@ class PBXReferenceProxy(XcodeObject):
 
 @dataclass
 class PBXTargetDependency(XcodeObject):
-    """A dependency between targets.
-
-    This represents that one target depends on another target, either in the
-    same project or in another project.
-    """
-
     targetProxy: Reference[
         PBXContainerItemProxy
     ]  # Points to proxy that describes the target
@@ -450,8 +346,6 @@ class PBXTargetDependency(XcodeObject):
 
 @dataclass
 class PBXBuildRule(XcodeObject):
-    """Build rule. Defines how to process a file of a given type."""
-
     compilerSpec: str
     fileType: str
     isEditable: int
@@ -468,8 +362,6 @@ class PBXBuildRule(XcodeObject):
 
 @dataclass
 class XCBuildConfiguration(XcodeObject):
-    """A build configuration in the project. Contains build settings."""
-
     name: str
     buildSettings: Dict[str, BuildSetting]
     baseConfigurationReference: Optional[Reference[PBXFileReference]] = None
@@ -483,8 +375,6 @@ class XCBuildConfiguration(XcodeObject):
 
 @dataclass
 class PBXNativeTarget(XcodeObject):
-    """A native target in the project. Represents a build target."""
-
     name: str
     buildConfigurationList: Reference[XCBuildConfiguration]
     buildPhases: List[
@@ -511,8 +401,6 @@ class PBXNativeTarget(XcodeObject):
 
 @dataclass
 class PBXAggregateTarget(XcodeObject):
-    """An aggregate target in the project. Groups several targets."""
-
     name: str
     buildConfigurationList: Reference[XCBuildConfiguration]
     buildPhases: List[Reference[PBXBuildFile]]
@@ -527,8 +415,6 @@ class PBXAggregateTarget(XcodeObject):
 
 @dataclass
 class PBXLegacyTarget(XcodeObject):
-    """A legacy target in the project. Uses an external build system."""
-
     name: str
     buildConfigurationList: Reference[XCBuildConfiguration]
     buildPhases: List[Reference[PBXBuildFile]]
@@ -547,8 +433,6 @@ class PBXLegacyTarget(XcodeObject):
 
 @dataclass
 class PBXProject(XcodeObject):
-    """The project object. The root object of the project."""
-
     name: str
     buildConfigurationList: Reference[XCBuildConfiguration]
     mainGroup: Reference[PBXGroup]
@@ -556,6 +440,7 @@ class PBXProject(XcodeObject):
     targets: List[
         Reference[Union[PBXNativeTarget, PBXAggregateTarget, PBXLegacyTarget]]
     ]
+    buildIndependentTargetsInParallel: int = 1
     compatibilityVersion: str = "Xcode 14.0"
     developmentRegion: str = "en"
     hasScannedForEncodings: int = 1
@@ -573,8 +458,6 @@ class PBXProject(XcodeObject):
 
 @dataclass
 class XCConfigurationList(XcodeObject):
-    """A configuration list in the project. Holds a list of build configurations."""
-
     buildConfigurations: List[Reference[XCBuildConfiguration]]
     defaultConfigurationIsVisible: int = 0
     defaultConfigurationName: str = "Release"
@@ -592,8 +475,6 @@ class XCConfigurationList(XcodeObject):
 # Complete project representation
 @dataclass
 class XcodeProject:
-    """An Xcode project. Contains all objects needed to generate a project file."""
-
     fileReferences: List[PBXFileReference]
     groups: List[PBXGroup]
     buildFiles: List[PBXBuildFile]

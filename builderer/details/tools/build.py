@@ -7,10 +7,11 @@ from argparse import ArgumentParser
 
 from builderer import Config
 from builderer.details.as_iterator import str_iter
-from builderer.details.workspace import Workspace, target_full_name
+from builderer.details.workspace import Workspace
 from builderer.generators.make import MakeGenerator
 from builderer.generators.msbuild import MsBuildGenerator
 from builderer.generators.msbuild.version import VS_VERSIONS
+from builderer.generators.xcode import XcodeGenerator
 
 
 def build_with_make(
@@ -119,6 +120,48 @@ def build_with_msbuild(
     return 0
 
 
+def build_with_xcode(
+    workspace: Workspace,
+    config: Config,
+    target_name: Optional[str],
+    build_config: Optional[str],
+    build_arch: Optional[str],
+) -> int:
+    build_root = Path(config.build_root)
+    # Validate build_root is an .xcodeproj
+    if not str(build_root).endswith(".xcodeproj"):
+        print(
+            f"ERROR: Xcode build_root must end with .xcodeproj, got: {build_root}",
+            file=sys.stderr,
+        )
+        return 1
+    # Build xcodebuild command
+    xcode_args = [
+        "xcodebuild",
+        "-project",
+        str(build_root),
+        "-parallelizeTargets",
+    ]
+    # Add target if specified
+    if target_name:
+        _, tgt_name = target_name.split(":")
+        xcode_args.extend(["-target", tgt_name])
+    else:
+        xcode_args.append("-alltargets")
+    # Add configuration if specified
+    if build_config:
+        xcode_args.extend(["-configuration", build_config])
+    # Add architecture if specified
+    if build_arch:
+        xcode_args.extend(["-arch", build_arch])
+    # Run xcodebuild
+    result = subprocess.run(xcode_args)
+    if result.returncode != 0:
+        print(f"Build failed")
+        return result.returncode
+    return 0
+
+
 def build_target(
     workspace: Workspace,
     config: Config,
@@ -147,6 +190,14 @@ def build_target(
             build_config=build_config,
             build_arch=build_arch,
             generator=generator,
+        )
+    elif generator_type is XcodeGenerator:
+        return build_with_xcode(
+            workspace=workspace,
+            config=config,
+            target_name=target_name,
+            build_config=build_config,
+            build_arch=build_arch,
         )
     else:
         print(

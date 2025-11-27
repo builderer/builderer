@@ -1,14 +1,12 @@
-"""
-Xcode project file formatter.
-
-This module provides functionality to convert an XcodeProject object into a valid
-Xcode project file (.pbxproj) string representation. It uses a recursive, type-driven
-approach to format the data structures without making assumptions about specific fields.
-"""
+# Xcode project file formatter.
+#
+# This module provides functionality to convert an XcodeProject object into a valid
+# Xcode project file (.pbxproj) string representation. It uses a recursive, type-driven
+# approach to format the data structures without making assumptions about specific fields.
 
 import dataclasses
 import enum
-from typing import Dict, List, Set, Union, Optional, TypeVar, cast, Type
+from typing import Dict, FrozenSet, List, Set, Union, Optional, TypeVar, cast, Type
 
 from builderer.generators.xcode.model import (
     XcodeObject,
@@ -25,6 +23,15 @@ from builderer.generators.xcode.model import (
     PBXGroup,
     PBXNativeTarget,
     XCBuildConfiguration,
+)
+
+# Fields that are internal metadata and should not be serialized
+EXCLUDED_FIELDS: FrozenSet[str] = frozenset(
+    {
+        "owner",  # XCBuildConfiguration, XCConfigurationList - used for key uniqueness
+        "target_name",  # PBXBuildFile, build phases - used for key uniqueness
+        "group_id",  # PBXGroup - used for key uniqueness
+    }
 )
 
 
@@ -50,15 +57,6 @@ ObjectsDict = Dict[str, ObjectProperties]
 
 
 def format_xcode_project(project: XcodeProject) -> str:
-    """
-    Convert an XcodeProject object to its string representation.
-
-    Args:
-        project: The XcodeProject object to format.
-
-    Returns:
-        A string containing the formatted Xcode project file content.
-    """
     # Start with the UTF-8 marker
     result = "// !$*UTF8*$!\n"
 
@@ -81,15 +79,6 @@ def format_xcode_project(project: XcodeProject) -> str:
 
 
 def collect_objects(project: XcodeProject) -> ObjectsDict:
-    """
-    Collect all objects from the project into a dictionary keyed by object ID.
-
-    Args:
-        project: The XcodeProject object to collect objects from.
-
-    Returns:
-        A dictionary of objects keyed by their IDs.
-    """
     objects: ObjectsDict = {}
     visited: Set[int] = set()
 
@@ -119,14 +108,6 @@ def collect_objects(project: XcodeProject) -> ObjectsDict:
 def collect_objects_recursive(
     value: FormattableValue, objects: ObjectsDict, visited: Set[int]
 ) -> None:
-    """
-    Recursively collect objects from a value.
-
-    Args:
-        value: The value to collect objects from.
-        objects: The dictionary to add objects to.
-        visited: Set of object ids already visited (to prevent cycles).
-    """
     # Skip None values and already visited objects
     if value is None or id(value) in visited:
         return
@@ -143,13 +124,17 @@ def collect_objects_recursive(
         # Create the object properties
         props: ObjectProperties = {"isa": object_type}
 
-        # Add all fields except id
+        # Add all fields except id and excluded metadata fields
         for field in dataclasses.fields(value):
             field_name = field.name
             field_value = getattr(value, field_name)
 
-            # Skip id field and None values
-            if field_name == "id" or field_value is None:
+            # Skip id field, None values, and excluded metadata fields
+            if (
+                field_name == "id"
+                or field_value is None
+                or field_name in EXCLUDED_FIELDS
+            ):
                 continue
 
             # Add to properties directly without conversion
@@ -182,16 +167,6 @@ def collect_objects_recursive(
 
 
 def format_value(value: FormattableValue, indent_level: int) -> str:
-    """
-    Format a value based on its type.
-
-    Args:
-        value: The value to format.
-        indent_level: The current indentation level.
-
-    Returns:
-        A string representing the formatted value.
-    """
     indent = "\t" * indent_level
 
     # Handle None
@@ -265,31 +240,11 @@ def format_value(value: FormattableValue, indent_level: int) -> str:
 
 
 def format_object_dict(obj_dict: Dict[str, FormattableValue], indent_level: int) -> str:
-    """
-    Format an object's dictionary representation.
-
-    Args:
-        obj_dict: The object's dictionary representation.
-        indent_level: The current indentation level.
-
-    Returns:
-        A string representing the formatted object.
-    """
     # Convert to regular dict for formatting
     return format_dict(obj_dict, indent_level)
 
 
 def format_dict(value_dict: Dict[str, FormattableValue], indent_level: int) -> str:
-    """
-    Format a dictionary.
-
-    Args:
-        value_dict: The dictionary to format.
-        indent_level: The current indentation level.
-
-    Returns:
-        A string representing the formatted dictionary.
-    """
     indent = "\t" * indent_level
     inner_indent = "\t" * (indent_level + 1)
 
@@ -313,16 +268,6 @@ def format_dict(value_dict: Dict[str, FormattableValue], indent_level: int) -> s
 
 
 def format_list(value_list: List[FormattableValue], indent_level: int) -> str:
-    """
-    Format a list.
-
-    Args:
-        value_list: The list to format.
-        indent_level: The current indentation level.
-
-    Returns:
-        A string representing the formatted list.
-    """
     if not value_list:
         return "()"
 
@@ -341,14 +286,6 @@ def format_list(value_list: List[FormattableValue], indent_level: int) -> str:
 
 
 def format_enum(value_enum: enum.Enum) -> str:
-    """Format an enum value for Xcode project file.
-
-    Args:
-        value_enum: The enum value to format.
-
-    Returns:
-        The formatted string representation.
-    """
     if isinstance(value_enum.value, str):
         return f'"{value_enum.value}"'
     return str(value_enum.value)

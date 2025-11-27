@@ -21,13 +21,6 @@ import os
 
 
 def collect_ids(obj: Any, all_ids: Set[str]) -> None:
-    """
-    Recursively collect all IDs from the project structure.
-
-    Args:
-        obj: The object to traverse.
-        all_ids: A set to collect IDs.
-    """
     if isinstance(obj, XcodeObject):
         all_ids.add(obj.id)
     elif isinstance(obj, list):
@@ -42,15 +35,6 @@ def collect_ids(obj: Any, all_ids: Set[str]) -> None:
 
 
 def validate_references(project: XcodeProject) -> List[str]:
-    """
-    Validate that all references in the Xcode project point to existing objects.
-
-    Args:
-        project: The Xcode project to validate.
-
-    Returns:
-        A list of error messages for invalid references.
-    """
     errors = []
     all_ids: set[str] = set()
     collect_ids(project, all_ids)
@@ -93,28 +77,13 @@ def validate_references(project: XcodeProject) -> List[str]:
 
 
 def validate_paths(project: XcodeProject, project_dir: str) -> List[str]:
-    """
-    Validate that all file paths in the project exist.
-
-    Args:
-        project: The Xcode project to validate.
-        project_dir: The project directory (where the .xcodeproj lives).
-
-    Returns:
-        A list of error messages for missing files.
-    """
     errors = []
-
     # Collect product references
     product_refs: Set[XcodeID] = set()
-
-    # From all target types
-    for target in (
-        project.nativeTargets + project.aggregateTargets + project.legacyTargets
-    ):
+    # From native targets (only native targets have productReference)
+    for target in project.nativeTargets:
         if target.productReference is not None:
             product_refs.add(target.productReference.id)
-
     # From products group
     if project.project.productRefGroup is not None:
         for ref in project.groups:
@@ -127,11 +96,9 @@ def validate_paths(project: XcodeProject, project_dir: str) -> List[str]:
             # Skip product references
             if obj.id in product_refs:
                 return
-
             # Skip references with no path
             if obj.path is None:
                 return
-
             # Handle different source tree types
             if obj.sourceTree == SourceTree.SOURCE_ROOT:
                 full_path = os.path.join(project_dir, obj.path)
@@ -152,7 +119,6 @@ def validate_paths(project: XcodeProject, project_dir: str) -> List[str]:
                     errors.append(f"File not found: {obj.path}")
             else:
                 errors.append(f"Unknown sourceTree value: {obj.sourceTree}")
-
         # Recurse into lists, dicts, and dataclasses
         if isinstance(obj, list):
             for index, item in enumerate(obj):
@@ -169,22 +135,18 @@ def validate_paths(project: XcodeProject, project_dir: str) -> List[str]:
 
 
 def _is_xcode_variable(path: Union[str, Any]) -> bool:
-    """Check if a path contains Xcode build setting variables."""
     if not isinstance(path, str):
         return False
     return "$(" in path and ")" in path
 
 
 def validate_output_paths(project: XcodeProject) -> None:
-    """Validate output paths for all targets."""
     # Track seen paths to detect duplicates
     seen_paths: Dict[str, str] = {}  # path -> target_name
-
     # Check each target's output path
     for target in project.nativeTargets:
         if not isinstance(target, PBXNativeTarget):
             continue  # Skip non-native targets
-
         # Get the output path from the product reference
         if target.productReference is None:
             raise ValueError(f"Target {target.name} has no product reference")
@@ -194,20 +156,17 @@ def validate_output_paths(project: XcodeProject) -> None:
             if ref.id == target.productReference.id
         )
         output_path = product_ref.path
-
         # Check for duplicates
         if output_path in seen_paths:
             raise ValueError(
                 f"Duplicate output path '{output_path}' for targets '{target.name}' and '{seen_paths[output_path]}'"
             )
         seen_paths[output_path] = target.name
-
         # Check for conflicts with existing files
         if os.path.exists(output_path):
             raise ValueError(
                 f"Output path '{output_path}' conflicts with existing file"
             )
-
         # Check for invalid filesystem characters (excluding path separators)
         if any(c in output_path for c in '<>:"|?*'):
             raise ValueError(

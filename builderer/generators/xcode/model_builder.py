@@ -1,10 +1,8 @@
-"""
-Xcode project model builder.
-
-This module provides functionality to convert a builderer target into an Xcode project model.
-It extracts information from the workspace and converts it to the appropriate Xcode project model
-structures defined in model.py.
-"""
+# Xcode project model builder.
+#
+# This module provides functionality to convert a builderer target into an Xcode project model.
+# It extracts information from the workspace and converts it to the appropriate Xcode project model
+# structures defined in model.py.
 
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple, Union
@@ -17,7 +15,7 @@ from builderer.details.targets.target import BuildTarget
 from builderer.details.targets.cc_binary import CCBinary
 from builderer.details.targets.cc_library import CCLibrary
 from builderer.details.workspace import Workspace, target_full_name
-from builderer.details.variable_expansion import resolve_conditionals
+from builderer.details.variable_expansion import resolve_conditionals, bake_config
 from builderer.details.as_iterator import str_iter, str_scalar
 from builderer.generators.xcode.model import (
     BuildSetting,
@@ -51,8 +49,6 @@ from builderer.generators.xcode.model import (
 
 @dataclass(frozen=True)
 class TargetResult:
-    """Result of creating a target."""
-
     target: PBXNativeTarget
     file_references: List[PBXFileReference]
     groups: List[PBXGroup]
@@ -73,8 +69,6 @@ class TargetResult:
 
 @dataclass(frozen=True)
 class TargetInfo:
-    """Immutable information about a target."""
-
     target: BuildTarget
     package: Package
     sources: List[str]  # Paths relative to workspace root
@@ -88,13 +82,6 @@ class TargetInfo:
         package: Package,
         target: BuildTarget,
     ) -> "TargetInfo":
-        """Create TargetInfo from a target and its configurations.
-
-        Args:
-            base_config: The base configuration to resolve conditionals with
-            package: The package containing the target
-            target: The target to create info for
-        """
         sources: List[str] = []
         headers: List[str] = []
 
@@ -143,8 +130,6 @@ class TargetInfo:
 
 @dataclass(frozen=True)
 class ProjectInfo:
-    """Immutable information about the entire project."""
-
     targets: Dict[str, TargetInfo]  # target_name -> info
     dependencies: Dict[str, Set[str]]  # target_name -> dependent_target_names
     configs: List[Config]
@@ -205,7 +190,6 @@ def get_target_include_paths(
     config: Config,
     project_info: ProjectInfo,
 ) -> List[str]:
-    """Get include paths for a specific config."""
     # Collect include paths from the target and, for binaries, from dependent libraries
     if isinstance(target_info.target, CCLibrary):
         # For libraries, includes are the same for all configs
@@ -263,22 +247,10 @@ def get_target_output_path(
 ) -> str:
     package = target_info.package
     target = target_info.target
-    """Get the output path for a target for a specific configuration."""
     # For explicit output paths, use resolve_conditionals
     if target.output_path is not None:
-        # Create a temporary config with the current build_config value
-        temp_config = Config(
-            platform=config.platform,
-            build_config=config.build_config,  # This is already a single value from str_iter
-            architecture=config.architecture,
-            buildtool=config.buildtool,
-            toolchain=config.toolchain,
-            sandbox_root=config.sandbox_root,
-            build_root=config.build_root,
-        )
-        output_path = str_scalar(
-            resolve_conditionals(config=temp_config, value=target.output_path)
-        )
+        # Config should already be baked (single arch, single build_config)
+        output_path = resolve_conditionals(config=config, value=target.output_path)
         # Make path relative to project directory
         return os.path.relpath(
             os.path.join(project_info.workspace_root, output_path),
@@ -304,7 +276,6 @@ def get_target_output_path(
 
 
 def create_xcode_project(project_info: ProjectInfo) -> XcodeProject:
-    """Create an Xcode project from gathered project information."""
     # Create base project structure
     main_group = PBXGroup(name="", sourceTree=SourceTree.GROUP, children=[])
     products_group = PBXGroup(name="Products", sourceTree=SourceTree.GROUP, children=[])
@@ -322,17 +293,13 @@ def create_xcode_project(project_info: ProjectInfo) -> XcodeProject:
     for build_cfg in str_iter(project_info.base_config.build_config):
         # Start with empty settings; do not inject defaults
         settings: Dict[str, BuildSetting] = {}
-        # Relocate intermediates and built products under Out/build
+        # Relocate intermediates under Out/build (CONFIGURATION_BUILD_DIR set per-target)
         settings.update(
             {
                 "OBJROOT": BuildSetting(value=f"$(SRCROOT)/{objroot_rel}"),
                 "SYMROOT": BuildSetting(value=f"$(SRCROOT)/{symroot_rel}"),
                 "SHARED_PRECOMPS_DIR": BuildSetting(
                     value=f"$(OBJROOT)/SharedPrecompiledHeaders"
-                ),
-                # Ensure products live under SYMROOT/$(CONFIGURATION)
-                "CONFIGURATION_BUILD_DIR": BuildSetting(
-                    value="$(SYMROOT)/$(CONFIGURATION)"
                 ),
                 # Xcode compatibility: disable legacy user paths headermap, enable separate headermaps
                 "ALWAYS_SEARCH_USER_PATHS": BuildSetting(value=YesNo.NO),
@@ -490,7 +457,6 @@ def create_target(
     project_info: ProjectInfo,
     file_ref_registry: Dict[str, PBXFileReference],
 ) -> TargetResult:
-    """Create a target and all its associated objects."""
     # Create groups for file organization
     target_group = PBXGroup(
         name=target_info.target.name, sourceTree=SourceTree.GROUP, children=[]
@@ -635,15 +601,12 @@ def create_target(
                         str(a) for a in str_iter(project_info.base_config.architecture)
                     ]
                 ),
-                # Ensure Xcode build intermediates and products live under Out/build
+                # Ensure Xcode build intermediates live under Out/build
                 "BUILD_DIR": BuildSetting(value=f"$(SRCROOT)/{symroot_rel}"),
                 "OBJROOT": BuildSetting(value=f"$(SRCROOT)/{objroot_rel}"),
                 "SYMROOT": BuildSetting(value=f"$(SRCROOT)/{symroot_rel}"),
                 "SHARED_PRECOMPS_DIR": BuildSetting(
                     value=f"$(OBJROOT)/SharedPrecompiledHeaders"
-                ),
-                "CONFIGURATION_BUILD_DIR": BuildSetting(
-                    value="$(SYMROOT)/$(CONFIGURATION)"
                 ),
                 # Xcode compatibility: disable legacy user paths headermap, enable separate headermaps
                 "ALWAYS_SEARCH_USER_PATHS": BuildSetting(value=YesNo.NO),
@@ -654,28 +617,35 @@ def create_target(
             }
         )
 
-        # Create a base config with just the build config
-        base_config = Config(
-            platform=project_info.base_config.platform,
-            build_config=build_cfg,
-            architecture=project_info.base_config.architecture,
-            buildtool=project_info.base_config.buildtool,
-            toolchain=project_info.base_config.toolchain,
-            sandbox_root=project_info.base_config.sandbox_root,
-            build_root=project_info.base_config.build_root,
-        )
+        # Determine CONFIGURATION_BUILD_DIR for each architecture
+        arch_output_dirs: Dict[str, str] = {}
+        for arch in str_iter(project_info.base_config.architecture):
+            if target_info.target.output_path is not None:
+                baked_cfg = bake_config(
+                    project_info.base_config, architecture=arch, build_config=build_cfg
+                )
+                resolved_output = resolve_conditionals(
+                    baked_cfg, target_info.target.output_path
+                )
+                output_dir = os.path.dirname(resolved_output)
+                arch_output_dirs[arch] = f"$(SRCROOT)/{output_dir}"
+            else:
+                # Use default: products in SYMROOT/CONFIGURATION
+                arch_output_dirs[arch] = "$(SYMROOT)/$(CONFIGURATION)"
+
+        # Set base value (used for universal binary steps) and per-arch values
+        first_dir = next(iter(arch_output_dirs.values()))
+        settings["CONFIGURATION_BUILD_DIR"] = BuildSetting(value=first_dir)
+        for arch, output_dir in arch_output_dirs.items():
+            settings[f"CONFIGURATION_BUILD_DIR[arch={arch}]"] = BuildSetting(
+                value=output_dir
+            )
 
         # For each architecture, create a conditional setting
         for arch in str_iter(project_info.base_config.architecture):
-            # Create a config with specific architecture
-            arch_config = Config(
-                platform=project_info.base_config.platform,
-                build_config=build_cfg,
-                architecture=arch,
-                buildtool=project_info.base_config.buildtool,
-                toolchain=project_info.base_config.toolchain,
-                sandbox_root=project_info.base_config.sandbox_root,
-                build_root=project_info.base_config.build_root,
+            # Create a baked config for this specific architecture and build_config
+            arch_config = bake_config(
+                project_info.base_config, architecture=arch, build_config=build_cfg
             )
 
             # Add include paths for this architecture
@@ -788,6 +758,28 @@ def create_target(
                             value=linkopts
                         )
 
+                # Add library search paths for dependent libraries
+                if isinstance(target_info.target, CCBinary):
+                    lib_search_paths: List[str] = []
+                    for dep_pkg, dep_target in project_info.workspace.all_dependencies(
+                        target_info.package, target_info.target
+                    ):
+                        if isinstance(dep_target, CCLibrary) and dep_target.srcs:
+                            # Determine this library's CONFIGURATION_BUILD_DIR
+                            if dep_target.output_path is not None:
+                                dep_output = resolve_conditionals(
+                                    arch_config, dep_target.output_path
+                                )
+                                dep_dir = f"$(SRCROOT)/{os.path.dirname(dep_output)}"
+                            else:
+                                dep_dir = "$(SYMROOT)/$(CONFIGURATION)"
+                            if dep_dir not in lib_search_paths:
+                                lib_search_paths.append(dep_dir)
+                    if lib_search_paths:
+                        settings[f"LIBRARY_SEARCH_PATHS[arch={arch}]"] = BuildSetting(
+                            value=lib_search_paths
+                        )
+
         # Ensure correct product naming so Xcode emits proper output filenames and -l<name> during link
         settings["PRODUCT_NAME"] = BuildSetting(value="$(TARGET_NAME)")
         if isinstance(target_info.target, CCLibrary):
@@ -838,15 +830,6 @@ def create_target(
 
 
 def generate_xcode_project(config: Config, workspace: Workspace) -> XcodeProject:
-    """Generate an Xcode project.
-
-    Args:
-        config: The configuration to use.
-        workspace: The workspace to generate from.
-
-    Returns:
-        The generated XcodeProject.
-    """
     # For Xcode's build matrix, we need to handle configs and architectures separately
     # We'll use the original config's build_config and architecture lists
     project_info = ProjectInfo.gather(workspace, config, [config])
