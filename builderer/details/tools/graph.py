@@ -1,7 +1,6 @@
 import sys
 
-from pathlib import Path
-from typing import List, Dict, TextIO
+from typing import TextIO
 
 from builderer import Config
 from builderer.details.targets.target import PreBuildTarget
@@ -30,5 +29,13 @@ def write_clustered_graph(workspace: Workspace, file: TextIO):
     print("}", file=file)
 
 
-def graph_main(workspace: Workspace, config: Config):
+def graph_main(
+    workspace: Workspace,
+    config: Config,
+    top_level_targets: list[str],
+    command_args: list[str],
+    binary_args: list[str],
+):
+    assert not command_args
+    assert not binary_args
     write_clustered_graph(workspace, sys.stdout)

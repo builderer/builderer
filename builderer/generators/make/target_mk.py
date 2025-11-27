@@ -24,6 +24,7 @@ CC_EXTS = {
 CXX_EXTS = {
     ".cc",
     ".cpp",
+    ".cxx",
     ".mm",
 }
 
@@ -59,6 +60,9 @@ PLATFORM_ARCH_FLAGS = {
     "macos": {
         "x86_64": "-arch x86_64",
         "arm64": "-arch arm64",
+    },
+    "emscripten": {
+        "wasm32": "",
     },
 }
 
@@ -286,7 +290,7 @@ class TargetMk:
                     f"{self.out_path}: $({objs_var})\n",
                     f"\t@$(ECHO) Archiving $@\n" f"\t@$(MKDIR) $(dir $@)\n",
                     f"\t@$(RM) $@\n",
-                    f"\t@$(AR) Scq $@ $^\n",
+                    f"\t@$(AR) rcS $@ $^\n",
                     f"\t@$(RANLIB) $@\n",
                     "\n",
                 ]

@@ -5,42 +5,15 @@ from builderer import Config
 from builderer.details.as_iterator import str_iter
 from builderer.details.targets.target import BuildTarget
 from builderer.details.workspace import Workspace
-from builderer.generators.make.root_makefile import RootMakefile
-from builderer.generators.make.target_mk import TargetMk
+from builderer.generators.make.root_makefile import RootMakefile, TOOLCHAIN_TOOLS
+from builderer.generators.make.target_mk import TargetMk, PLATFORM_ARCH_FLAGS
 from builderer.generators.make.utils import build_config_root, is_header_only_library
 from builderer.details.variable_expansion import bake_config
 from builderer.details.as_iterator import str_scalar
 
-SUPPORTED_TOOLCHAINS = ["clang", "gcc"]
-SUPPORTED_PLATFORMS = ["linux", "macos"]
-SUPPORTED_ARCHITECTURES = {
-    "linux": [
-        "x86-64",
-        "i386",
-        "i686",
-        # Arm list from: https://gcc.gnu.org/onlinedocs/gcc/AArch64-Options.html
-        "armv8-a",
-        "armv8.1-a",
-        "armv8.2-a",
-        "armv8.3-a",
-        "armv8.4-a",
-        "armv8.5-a",
-        "armv8.6-a",
-        "armv8.7-a",
-        "armv8.8-a",
-        "armv8.9-a",
-        "armv8-r",
-        "armv9-a",
-        "armv9.1-a",
-        "armv9.2-a",
-        "armv9.3-a",
-        "armv9.4-a",
-    ],
-    "macos": [
-        "x86_64",
-        "arm64",
-    ],
-}
+SUPPORTED_TOOLCHAINS = TOOLCHAIN_TOOLS.keys()
+SUPPORTED_PLATFORMS = PLATFORM_ARCH_FLAGS.keys()
+SUPPORTED_ARCHITECTURES = {k: v.keys() for k, v in PLATFORM_ARCH_FLAGS.items()}
 
 
 class MakeGenerator:

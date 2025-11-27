@@ -10,6 +10,7 @@ from typing import Dict, Union, Type, Iterator, Optional, Callable
 
 from builderer import Config
 from builderer.details.context import ConfigContext, RulesContext, BuildContext
+from builderer.details.glob_filter import glob_with_exclusions
 from builderer.details.package import Package
 from builderer.details.targets.target import Target, BuildTarget
 from builderer.details.variable_expansion import resolve_conditionals, resolve_variables
@@ -152,11 +153,7 @@ class Workspace:
             # Glob path variables...
             target_root = Path(target.workspace_root)
             for _, attr in target.get_all_path_fields():
-                attr[:] = [
-                    src.as_posix()
-                    for pattern in attr
-                    for src in target_root.glob(pattern)
-                ]
+                attr[:] = glob_with_exclusions(target_root, attr)
             # Perform pre-build tasks (e.g. sandboxing, code generation, etc)...
             if target.sandbox:
                 target.do_pre_build()
