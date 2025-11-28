@@ -907,6 +907,8 @@ def create_target(
         # Use exact user config names (don't force Debug/Release)
         config_name = str(build_cfg)
 
+        target_temp_dir = f"$(OBJROOT)/$(PROJECT_NAME).build/$(CONFIGURATION)/{target_info.package.name}/{target_info.target.name}.build"
+
         # Basic build settings derived from workspace config
         settings.update(
             {
@@ -922,6 +924,8 @@ def create_target(
                 "SHARED_PRECOMPS_DIR": BuildSetting(
                     value=f"$(OBJROOT)/SharedPrecompiledHeaders"
                 ),
+                # Per-target temp dir includes package path to avoid case-insensitive collisions
+                "TARGET_TEMP_DIR": BuildSetting(value=target_temp_dir),
                 # Xcode compatibility: disable legacy user paths headermap, enable separate headermaps
                 "ALWAYS_SEARCH_USER_PATHS": BuildSetting(value=YesNo.NO),
                 "ALWAYS_USE_SEPARATE_HEADERMAPS": BuildSetting(value=YesNo.YES),
