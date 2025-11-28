@@ -1,12 +1,11 @@
 import os
 
-from graphlib import TopologicalSorter
 from pathlib import Path
+from typing import TextIO
 
 from builderer.details.targets.cc_binary import CCBinary
 from builderer.details.targets.cc_library import CCLibrary
 from builderer.details.variable_expansion import resolve_conditionals
-from builderer.details.workspace import target_full_name
 from builderer.generators.make.utils import (
     mk_target_build_path,
     phony_target_name,
@@ -106,7 +105,7 @@ class TargetMk:
         with open(self.path, "w") as file:
             self._write_makefile(file)
 
-    def _write_makefile(self, file):
+    def _write_makefile(self, file: TextIO):
         # pick some variable names...
         includes_var = self.var_name("INCLUDES")
         defines_var = self.var_name("DEFINES")
@@ -117,38 +116,17 @@ class TargetMk:
         objs_var = self.var_name("OBJS")
         deps_var = self.var_name("DEPS")
 
-        # entire dependency tree
+        # All transitive dependencies (unique, reversed for link order)
         all_dependencies = [
             (p, t)
-            for p, t in self.workspace.all_dependencies(
-                package=self.package, target=self.target
-            )
-        ]
-
-        # sort dependencies
-        sorter: TopologicalSorter = TopologicalSorter()
-        for p, t in all_dependencies:
-            sorter.add(
-                target_full_name(p, t),
-                *[
-                    target_full_name(dp, dt)
-                    for dp, dt in self.workspace.direct_dependencies(
-                        package=p, target=t
+            for p, t in reversed(
+                list(
+                    self.workspace.all_dependencies(
+                        package=self.package, target=self.target
                     )
-                ],
+                )
             )
-        all_dependencies = list(
-            reversed(
-                [
-                    self.workspace.find_target(name=dep, outer=self.package)
-                    for dep in sorter.static_order()
-                ]
-            )
-        )
-
-        # filter dependencies...
-        all_dependencies = [
-            (p, t) for p, t in all_dependencies if isinstance(t, CCLibrary)
+            if isinstance(t, CCLibrary)
         ]
 
         # header

@@ -600,11 +600,61 @@ def get_target_output_path(
     return f"{symroot_rel}/{config.build_config}/{target_info.package.name}/{product_filename}"
 
 
+def build_package_group_hierarchy(
+    project_info: ProjectInfo,
+) -> Tuple[Dict[str, PBXGroup], List[PBXGroup]]:
+    # Collect all unique package paths from targets
+    package_paths: Set[Path] = set()
+    for target_info in project_info.targets.values():
+        package_paths.add(Path(target_info.package.name))
+    # Also collect all parent directories to create intermediate groups
+    all_paths: Set[Path] = set()
+    for pkg_path in package_paths:
+        all_paths.add(pkg_path)
+        for parent in pkg_path.parents:
+            if parent != Path(".") and parent != Path():
+                all_paths.add(parent)
+    # Sort paths by depth (parents before children)
+    sorted_paths = sorted(all_paths, key=lambda p: len(p.parts))
+    # Create groups for each path
+    path_to_group: Dict[str, PBXGroup] = {}
+    all_groups: List[PBXGroup] = []
+    for path in sorted_paths:
+        group = PBXGroup(
+            name=path.name,
+            sourceTree=SourceTree.GROUP,
+            children=[],
+            group_id=f"package:{path}",
+        )
+        path_to_group[str(path)] = group
+        all_groups.append(group)
+        # Add to parent group if it exists
+        parent = path.parent
+        if parent != Path(".") and parent != Path() and str(parent) in path_to_group:
+            parent_group = path_to_group[str(parent)]
+            parent_group.children.append(Reference(group.id, path.name))
+    return path_to_group, all_groups
+
+
 def create_xcode_project(project_info: ProjectInfo) -> XcodeProject:
     # Create base project structure
     main_group = PBXGroup(name="", sourceTree=SourceTree.GROUP, children=[])
-    products_group = PBXGroup(name="Products", sourceTree=SourceTree.GROUP, children=[])
+    products_group = PBXGroup(
+        name="Products", sourceTree=SourceTree.GROUP, children=[], group_id="products"
+    )
     main_group.children.append(Reference(products_group.id, "Products"))
+
+    # Build hierarchical package groups
+    package_groups, package_group_list = build_package_group_hierarchy(project_info)
+
+    # Add top-level package groups to main group
+    top_level_paths = sorted(
+        {str(Path(ti.package.name).parts[0]) for ti in project_info.targets.values()}
+    )
+    for top_path in top_level_paths:
+        if top_path in package_groups:
+            group = package_groups[top_path]
+            main_group.children.append(Reference(group.id, top_path))
 
     # Compute custom build roots to avoid polluting workspace with default 'build'
     project_stem = Path(project_info.base_config.build_root).stem
@@ -673,7 +723,7 @@ def create_xcode_project(project_info: ProjectInfo) -> XcodeProject:
     # Process each target
     native_targets = []
     file_references = []
-    groups = [main_group, products_group]
+    groups = [main_group, products_group] + package_group_list
     build_files = []
     build_phases = []
     build_configurations = project_configs  # Start with project configs
@@ -703,8 +753,16 @@ def create_xcode_project(project_info: ProjectInfo) -> XcodeProject:
         build_configurations.extend(target_result.configurations)
         configuration_lists.append(target_result.config_list)
 
-        # Add target's main group to project main group
-        main_group.children.append(Reference(target_result.groups[0].id, full_name))
+        # Add target's main group to its package group (hierarchical layout)
+        package_path = target_info.package.name
+        if package_path in package_groups:
+            package_group = package_groups[package_path]
+            package_group.children.append(
+                Reference(target_result.groups[0].id, target_info.target.name)
+            )
+        else:
+            # Fallback: add directly to main group if no package group
+            main_group.children.append(Reference(target_result.groups[0].id, full_name))
 
         # Add product reference to Products group
         product_ref = target_result.file_references[0]
@@ -767,26 +825,27 @@ def create_target(
     file_ref_registry: Dict[str, PBXFileReference],
     symroot_rel: str,
 ) -> TargetResult:
-    # Create groups for file organization - use full path from SOURCE_ROOT for uniqueness
+    # Create groups for file organization
+    # Use GROUP sourceTree without path for virtual organizational groups
+    # (prevents Xcode from showing red "missing folder" indicators)
     full_name = target_full_name(target_info.package, target_info.target)
-    target_path = f"{target_info.package.name}/{target_info.target.name}"
     target_group = PBXGroup(
         name=target_info.target.name,
-        sourceTree=SourceTree.SOURCE_ROOT,
+        sourceTree=SourceTree.GROUP,
         children=[],
-        path=target_path,
+        group_id=f"target:{full_name}",
     )
     sources_group = PBXGroup(
         name="Sources",
-        sourceTree=SourceTree.SOURCE_ROOT,
+        sourceTree=SourceTree.GROUP,
         children=[],
-        path=f"{target_path}/Sources",
+        group_id=f"sources:{full_name}",
     )
     headers_group = PBXGroup(
         name="Headers",
-        sourceTree=SourceTree.SOURCE_ROOT,
+        sourceTree=SourceTree.GROUP,
         children=[],
-        path=f"{target_path}/Headers",
+        group_id=f"headers:{full_name}",
     )
     target_group.children.extend(
         [
@@ -1065,8 +1124,13 @@ def create_target(
                         )
 
                     # Add explicit paths to all dependent libraries (avoids -l collisions)
-                    for dep_pkg, dep_target in project_info.workspace.all_dependencies(
-                        target_info.package, target_info.target
+                    # Reversed for correct link order (dependents before dependencies)
+                    for dep_pkg, dep_target in reversed(
+                        list(
+                            project_info.workspace.all_dependencies(
+                                target_info.package, target_info.target
+                            )
+                        )
                     ):
                         if isinstance(dep_target, CCLibrary) and dep_target.srcs:
                             dep_full_name = target_full_name(dep_pkg, dep_target)
