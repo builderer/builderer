@@ -16,31 +16,29 @@ from builderer.details.targets.cc_binary import CCBinary
 from builderer.details.targets.cc_library import CCLibrary
 from builderer.details.workspace import Workspace, target_full_name
 from builderer.details.variable_expansion import resolve_conditionals, bake_config
-from builderer.details.as_iterator import str_iter, str_scalar
+from builderer.details.as_iterator import str_iter
 from builderer.generators.xcode.model import (
     BuildSetting,
     FileType,
     PBXBuildFile,
+    PBXCopyFilesBuildPhase,
     PBXFileReference,
     PBXFrameworksBuildPhase,
     PBXGroup,
     PBXNativeTarget,
     PBXProject,
     PBXResourcesBuildPhase,
-    PBXSourcesBuildPhase,
-    PBXCopyFilesBuildPhase,
     PBXShellScriptBuildPhase,
+    PBXSourcesBuildPhase,
     ProductType,
     Reference,
     SourceTree,
     XCBuildConfiguration,
     XCConfigurationList,
-    XcodeObject,
     XcodeProject,
     YesNo,
     PBXTargetDependency,
     PBXContainerItemProxy,
-    generate_id,
     ProxyType,
 )
 

@@ -2,10 +2,9 @@ from pathlib import Path
 
 from builderer import Config
 from builderer.details.workspace import Workspace
-from builderer.details.variable_expansion import bake_config
 from builderer.details.as_iterator import str_iter
 from builderer.generators.xcode.formatter import format_xcode_project
-from builderer.generators.xcode.model_builder import generate_xcode_project, ProjectInfo
+from builderer.generators.xcode.model_builder import generate_xcode_project
 from builderer.generators.xcode.validator import (
     validate_references,
     validate_paths,

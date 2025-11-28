@@ -5,8 +5,8 @@
 # as documented in the Xcode project file format.
 
 from dataclasses import dataclass, field
-from enum import Enum, auto
-from typing import Dict, List, Optional, Union, NewType, ClassVar, Set, TypeVar, Generic
+from enum import Enum
+from typing import Dict, List, Optional, Union, TypeVar, Generic
 from abc import ABC, abstractmethod
 
 import uuid
