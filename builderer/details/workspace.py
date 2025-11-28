@@ -227,7 +227,7 @@ class Workspace:
                     visited[dep] = True
                     queue.append(dep)
 
-    def _topological_sort(self) -> list:
+    def _topological_sort(self) -> list[tuple[Package, Target]]:
         sorter: TopologicalSorter = TopologicalSorter()
         for (p, t), deps in self._graph.items():
             sorter.add((p, t), *deps)
