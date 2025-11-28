@@ -482,7 +482,6 @@ class ProjectInfo:
         base_config: Config,
         configs: List[Config],
     ) -> "ProjectInfo":
-        """Gather all project information."""
         targets = {}
         dependencies = {}
 
@@ -495,22 +494,22 @@ class ProjectInfo:
         for package, target in workspace.targets:
             if not isinstance(target, BuildTarget):
                 continue
-            targets[target.name] = TargetInfo.from_target(
+            targets[target_full_name(package, target)] = TargetInfo.from_target(
                 base_config=base_config,
                 package=package,
                 target=target,
             )
 
         # Second pass: gather dependencies
-        for target_name, target_info in targets.items():
+        for full_name, target_info in targets.items():
             deps = set()
             if isinstance(target_info.target, (CCBinary, CCLibrary)):
                 for pkg, dep_target in workspace.all_dependencies(
                     target_info.package, target_info.target
                 ):
                     if isinstance(dep_target, CCLibrary):
-                        deps.add(dep_target.name)
-            dependencies[target_name] = deps
+                        deps.add(target_full_name(pkg, dep_target))
+            dependencies[full_name] = deps
 
         return ProjectInfo(
             targets=targets,
@@ -571,36 +570,18 @@ def get_target_include_paths(
 def get_target_output_path(
     target_info: TargetInfo,
     config: Config,
-    project_info: ProjectInfo,
+    symroot_rel: str,
 ) -> str:
-    package = target_info.package
     target = target_info.target
-    # For explicit output paths, use resolve_conditionals
+    # User-provided path takes precedence
     if target.output_path is not None:
-        # Config should already be baked (single arch, single build_config)
-        output_path = resolve_conditionals(config=config, value=target.output_path)
-        # Make path relative to project directory
-        return os.path.relpath(
-            os.path.join(project_info.workspace_root, output_path),
-            project_info.project_dir,
-        )
-
-    # For implicit output paths, put them in intermediates directory next to the project
-    intermediates_dir = os.path.join(
-        os.path.dirname(project_info.project_dir),
-        f"xcode-obj-{config.platform}-{config.build_config}-{config.architecture}",
-        package.name,
-        target.name,  # Ensure unique path per target
-    )
-
-    # Make path relative to project directory
-    intermediates_dir = os.path.relpath(intermediates_dir, project_info.project_dir)
-
-    # For libraries, add lib prefix and .a suffix
+        return resolve_conditionals(config=config, value=target.output_path)
+    # Generate path: {symroot_rel}/{build_config}/{package}/{filename}
     if isinstance(target, CCLibrary):
-        return os.path.join(intermediates_dir, f"lib{target.name}.a")
+        product_filename = f"lib{target.name}.a"
     else:
-        return os.path.join(intermediates_dir, target.name)
+        product_filename = target.name
+    return f"{symroot_rel}/{config.build_config}/{target_info.package.name}/{product_filename}"
 
 
 def create_xcode_project(project_info: ProjectInfo) -> XcodeProject:
@@ -683,19 +664,22 @@ def create_xcode_project(project_info: ProjectInfo) -> XcodeProject:
     configuration_lists = [project_config_list]
     target_dependencies = []
     container_item_proxies = []
-    # Lookups for later wiring
+    # Lookups for later wiring (keyed by target_full_name)
+    native_target_by_name: Dict[str, PBXNativeTarget] = {}
     product_ref_by_target: Dict[str, PBXFileReference] = {}
-    frameworks_phase_by_target: Dict[str, PBXFrameworksBuildPhase] = {}
 
     # First pass: create all targets and their file references
-    for target_name, target_info in project_info.targets.items():
+    for full_name, target_info in project_info.targets.items():
         # Skip header-only libraries - they don't need Xcode targets
         if isinstance(target_info.target, CCLibrary) and not target_info.sources:
             continue
 
-        target_result = create_target(target_info, project_info, file_ref_registry)
+        target_result = create_target(
+            target_info, project_info, file_ref_registry, symroot_rel
+        )
 
         native_targets.append(target_result.target)
+        native_target_by_name[full_name] = target_result.target
         file_references.extend(target_result.file_references)
         groups.extend(target_result.groups)
         build_files.extend(target_result.build_files)
@@ -704,42 +688,35 @@ def create_xcode_project(project_info: ProjectInfo) -> XcodeProject:
         configuration_lists.append(target_result.config_list)
 
         # Add target's main group to project main group
-        main_group.children.append(Reference(target_result.groups[0].id, target_name))
+        main_group.children.append(Reference(target_result.groups[0].id, full_name))
 
-        # Add product reference to Products group and record lookups
+        # Add product reference to Products group
         product_ref = target_result.file_references[0]
-        products_group.children.append(Reference(product_ref.id, target_name))
-        product_ref_by_target[target_name] = product_ref
-        # Find this target's frameworks phase
-        for bp in target_result.build_phases:
-            if isinstance(bp, PBXFrameworksBuildPhase):
-                frameworks_phase_by_target[target_name] = bp
-                break
+        products_group.children.append(Reference(product_ref.id, full_name))
+        product_ref_by_target[full_name] = product_ref
 
         # Add target reference to project
-        project.targets.append(Reference(target_result.target.id, target_name))
+        project.targets.append(Reference(target_result.target.id, full_name))
 
     # Second pass: add dependencies between targets
-    for target_name, deps in project_info.dependencies.items():
+    for full_name, deps in project_info.dependencies.items():
         # Skip if this target wasn't created (header-only library)
-        try:
-            target = next(t for t in native_targets if t.name == target_name)
-        except StopIteration:
+        if full_name not in native_target_by_name:
             continue
+        target = native_target_by_name[full_name]
 
-        for dep_name in deps:
+        for dep_full_name in deps:
             # Skip if dependency wasn't created (header-only library)
-            try:
-                dep_target = next(t for t in native_targets if t.name == dep_name)
-            except StopIteration:
+            if dep_full_name not in native_target_by_name:
                 continue
+            dep_target = native_target_by_name[dep_full_name]
 
             # Create container proxy
             container_proxy = PBXContainerItemProxy(
                 containerPortal=project.id,
                 proxyType=ProxyType.TARGET_DEPENDENCY,
                 remoteGlobalIDString=dep_target.id,
-                remoteInfo=dep_name,
+                remoteInfo=dep_full_name,
             )
             container_item_proxies.append(container_proxy)
 
@@ -750,26 +727,12 @@ def create_xcode_project(project_info: ProjectInfo) -> XcodeProject:
             )
             target_dependencies.append(target_dependency)
 
-            # Add to target's dependencies
+            # Add to target's dependencies (build order only - linking is via OTHER_LDFLAGS)
             target.dependencies.append(Reference(target_dependency.id))
 
-            # Link the dependent product into the consuming target's Frameworks phase
-            if (
-                target_name in frameworks_phase_by_target
-                and dep_name in product_ref_by_target
-            ):
-                dep_product_ref = product_ref_by_target[dep_name]
-                link_bf = PBXBuildFile(
-                    fileRef=Reference(dep_product_ref.id),
-                    name=dep_name,
-                    target_name=target_name,
-                )
-                build_files.append(link_bf)
-                frameworks_phase = frameworks_phase_by_target[target_name]
-                frameworks_phase.files.append(Reference(link_bf.id))
-
     return XcodeProject(
-        fileReferences=list(file_ref_registry.values()),
+        fileReferences=list(file_ref_registry.values())
+        + list(product_ref_by_target.values()),
         groups=groups,
         buildFiles=build_files,
         buildPhases=build_phases,
@@ -786,24 +749,28 @@ def create_target(
     target_info: TargetInfo,
     project_info: ProjectInfo,
     file_ref_registry: Dict[str, PBXFileReference],
+    symroot_rel: str,
 ) -> TargetResult:
-    # Create groups for file organization
+    # Create groups for file organization - use full path from SOURCE_ROOT for uniqueness
+    full_name = target_full_name(target_info.package, target_info.target)
+    target_path = f"{target_info.package.name}/{target_info.target.name}"
     target_group = PBXGroup(
-        name=target_info.target.name, sourceTree=SourceTree.GROUP, children=[]
+        name=target_info.target.name,
+        sourceTree=SourceTree.SOURCE_ROOT,
+        children=[],
+        path=target_path,
     )
     sources_group = PBXGroup(
         name="Sources",
-        sourceTree=SourceTree.GROUP,
+        sourceTree=SourceTree.SOURCE_ROOT,
         children=[],
-        path=None,  # No path - this is just an organizational group
-        group_id=f"{target_info.target.name}_Sources",  # Make key unique per target
+        path=f"{target_path}/Sources",
     )
     headers_group = PBXGroup(
         name="Headers",
-        sourceTree=SourceTree.GROUP,
+        sourceTree=SourceTree.SOURCE_ROOT,
         children=[],
-        path=None,  # No path - this is just an organizational group
-        group_id=f"{target_info.target.name}_Headers",  # Make key unique per target
+        path=f"{target_path}/Headers",
     )
     target_group.children.extend(
         [
@@ -839,7 +806,7 @@ def create_target(
         build_file = PBXBuildFile(
             fileRef=Reference(file_ref.id),
             name=os.path.basename(src),
-            target_name=target_info.target.name,
+            target_name=full_name,
         )
         source_build_files.append(build_file)
 
@@ -862,20 +829,20 @@ def create_target(
 
         headers_group.children.append(Reference(file_ref.id))
 
-    # Create product reference in built products dir
+    # Create product reference - path includes package to ensure uniqueness
     if isinstance(target_info.target, CCLibrary):
         product_filename = f"lib{target_info.target.name}.a"
         product_type = FileType.ARCHIVE
     else:
         product_filename = target_info.target.name
         product_type = FileType.EXECUTABLE
+    product_path = f"{target_info.package.name}/{product_filename}"
     product_ref = PBXFileReference(
         name=target_info.target.name,
-        path=product_filename,
-        sourceTree=SourceTree.BUILT_PRODUCTS_DIR,
+        path=product_path,
+        sourceTree=SourceTree.SOURCE_ROOT,
         fileType=product_type,
     )
-    file_ref_registry[product_filename] = product_ref
 
     # Each target compiles only its own source files
     all_source_build_files = list(source_build_files)
@@ -883,13 +850,11 @@ def create_target(
     # Create build phases
     sources_phase = PBXSourcesBuildPhase(
         files=[Reference(bf.id) for bf in all_source_build_files],
-        target_name=target_info.target.name,
+        target_name=full_name,
     )
 
     # Create frameworks phase for dependencies
-    frameworks_phase = PBXFrameworksBuildPhase(
-        files=[], target_name=target_info.target.name
-    )
+    frameworks_phase = PBXFrameworksBuildPhase(files=[], target_name=full_name)
 
     # Create configurations - one per build config per target
     target_configs = []
@@ -938,18 +903,12 @@ def create_target(
         # Determine CONFIGURATION_BUILD_DIR for each architecture
         arch_output_dirs: Dict[str, str] = {}
         for arch in str_iter(project_info.base_config.architecture):
-            if target_info.target.output_path is not None:
-                baked_cfg = bake_config(
-                    project_info.base_config, architecture=arch, build_config=build_cfg
-                )
-                resolved_output = resolve_conditionals(
-                    baked_cfg, target_info.target.output_path
-                )
-                output_dir = os.path.dirname(resolved_output)
-                arch_output_dirs[arch] = f"$(SRCROOT)/{output_dir}"
-            else:
-                # Use default: products in SYMROOT/CONFIGURATION
-                arch_output_dirs[arch] = "$(SYMROOT)/$(CONFIGURATION)"
+            baked_cfg = bake_config(
+                project_info.base_config, architecture=arch, build_config=build_cfg
+            )
+            output_path = get_target_output_path(target_info, baked_cfg, symroot_rel)
+            output_dir = os.path.dirname(output_path)
+            arch_output_dirs[arch] = f"$(SRCROOT)/{output_dir}"
 
         # Set base value (used for universal binary steps) and per-arch values
         first_dir = next(iter(arch_output_dirs.values()))
@@ -1074,43 +1033,38 @@ def create_target(
                         BuildSetting(value=ordered_defs)
                     )
 
-                # Add linker flags from target
-                if (
-                    isinstance(target_info.target, CCBinary)
-                    and target_info.target.link_flags
-                ):
-                    linkopts = resolve_conditionals(
-                        arch_config, target_info.target.link_flags
-                    )
-                    if linkopts:
-                        settings[f"OTHER_LDFLAGS[arch={arch}]"] = BuildSetting(
-                            value=linkopts
+                # Add linker flags for binaries
+                if isinstance(target_info.target, CCBinary):
+                    ldflags: List[str] = []
+
+                    # Add user-provided link flags
+                    if target_info.target.link_flags:
+                        ldflags.extend(
+                            resolve_conditionals(
+                                arch_config, target_info.target.link_flags
+                            )
                         )
 
-                # Add library search paths for dependent libraries
-                if isinstance(target_info.target, CCBinary):
-                    lib_search_paths: List[str] = []
+                    # Add explicit paths to all dependent libraries (avoids -l collisions)
                     for dep_pkg, dep_target in project_info.workspace.all_dependencies(
                         target_info.package, target_info.target
                     ):
                         if isinstance(dep_target, CCLibrary) and dep_target.srcs:
-                            # Determine this library's CONFIGURATION_BUILD_DIR
-                            if dep_target.output_path is not None:
-                                dep_output = resolve_conditionals(
-                                    arch_config, dep_target.output_path
+                            dep_full_name = target_full_name(dep_pkg, dep_target)
+                            dep_target_info = project_info.targets.get(dep_full_name)
+                            if dep_target_info:
+                                dep_output = get_target_output_path(
+                                    dep_target_info, arch_config, symroot_rel
                                 )
-                                dep_dir = f"$(SRCROOT)/{os.path.dirname(dep_output)}"
-                            else:
-                                dep_dir = "$(SYMROOT)/$(CONFIGURATION)"
-                            if dep_dir not in lib_search_paths:
-                                lib_search_paths.append(dep_dir)
-                    if lib_search_paths:
-                        settings[f"LIBRARY_SEARCH_PATHS[arch={arch}]"] = BuildSetting(
-                            value=lib_search_paths
+                                ldflags.append(f"$(SRCROOT)/{dep_output}")
+
+                    if ldflags:
+                        settings[f"OTHER_LDFLAGS[arch={arch}]"] = BuildSetting(
+                            value=ldflags
                         )
 
-        # Ensure correct product naming so Xcode emits proper output filenames and -l<name> during link
-        settings["PRODUCT_NAME"] = BuildSetting(value="$(TARGET_NAME)")
+        # Use short target name for product (TARGET_NAME contains full_name with colon, invalid in paths)
+        settings["PRODUCT_NAME"] = BuildSetting(value=target_info.target.name)
         if isinstance(target_info.target, CCLibrary):
             settings["EXECUTABLE_PREFIX"] = BuildSetting(value="lib")
             settings["EXECUTABLE_SUFFIX"] = BuildSetting(value=".a")
@@ -1119,7 +1073,7 @@ def create_target(
             XCBuildConfiguration(
                 name=config_name,
                 buildSettings=settings,
-                owner=target_info.target.name,
+                owner=full_name,
             )
         )
 
@@ -1127,12 +1081,12 @@ def create_target(
     config_list = XCConfigurationList(
         buildConfigurations=[Reference(c.id) for c in target_configs],
         defaultConfigurationName=target_configs[0].name,
-        owner=target_info.target.name,
+        owner=full_name,
     )
 
-    # Create target
+    # Create target - use full name for uniqueness
     target = PBXNativeTarget(
-        name=target_info.target.name,
+        name=full_name,
         productType=target_info.product_type,
         buildPhases=[
             Reference(sources_phase.id),

@@ -1,4 +1,4 @@
-from typing import List, Any, Set, Union, Dict
+from typing import List, Any, Set, Union
 from builderer.generators.xcode.model import (
     XcodeProject,
     Reference,
@@ -105,20 +105,14 @@ def validate_paths(project: XcodeProject, project_dir: str) -> List[str]:
                 if not os.path.exists(full_path):
                     errors.append(f"File not found: {full_path}")
             elif obj.sourceTree == SourceTree.GROUP:
-                # GROUP paths are relative to their parent group, which we can't easily validate
-                # without tracking group hierarchy. Skip for now.
+                # GROUP is only used for project-level singletons (main_group, products_group)
+                # These don't have file paths to validate
                 pass
-            elif obj.sourceTree == SourceTree.DEVELOPER_DIR:
-                # These are Xcode-provided files, assume they exist
+            elif obj.sourceTree == SourceTree.BUILT_PRODUCTS_DIR:
+                # Products are generated during build, can't validate existence
                 pass
-            elif obj.sourceTree == SourceTree.SDKROOT:
-                # These are SDK-provided files, assume they exist
-                pass
-            elif obj.sourceTree == SourceTree.ABSOLUTE:
-                if not os.path.exists(obj.path):
-                    errors.append(f"File not found: {obj.path}")
             else:
-                errors.append(f"Unknown sourceTree value: {obj.sourceTree}")
+                errors.append(f"Unknown SourceTree {obj.sourceTree}")
         # Recurse into lists, dicts, and dataclasses
         if isinstance(obj, list):
             for index, item in enumerate(obj):
@@ -141,34 +135,19 @@ def _is_xcode_variable(path: Union[str, Any]) -> bool:
 
 
 def validate_output_paths(project: XcodeProject) -> None:
-    # Track seen paths to detect duplicates
-    seen_paths: Dict[str, str] = {}  # path -> target_name
-    # Check each target's output path
     for target in project.nativeTargets:
         if not isinstance(target, PBXNativeTarget):
-            continue  # Skip non-native targets
-        # Get the output path from the product reference
+            continue
         if target.productReference is None:
             raise ValueError(f"Target {target.name} has no product reference")
+
         product_ref = next(
             ref
             for ref in project.fileReferences
             if ref.id == target.productReference.id
         )
-        output_path = product_ref.path
-        # Check for duplicates
-        if output_path in seen_paths:
+        # Check for invalid filesystem characters
+        if any(c in product_ref.path for c in '<>:"|?*'):
             raise ValueError(
-                f"Duplicate output path '{output_path}' for targets '{target.name}' and '{seen_paths[output_path]}'"
-            )
-        seen_paths[output_path] = target.name
-        # Check for conflicts with existing files
-        if os.path.exists(output_path):
-            raise ValueError(
-                f"Output path '{output_path}' conflicts with existing file"
-            )
-        # Check for invalid filesystem characters (excluding path separators)
-        if any(c in output_path for c in '<>:"|?*'):
-            raise ValueError(
-                f"Output path '{output_path}' contains invalid filesystem characters"
+                f"Output path '{product_ref.path}' contains invalid filesystem characters"
             )

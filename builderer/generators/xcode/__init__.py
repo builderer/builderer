@@ -65,5 +65,4 @@ class XcodeGenerator:
                 raise ValueError(f"unsupported architecture {arch}")
 
     def __call__(self) -> None:
-        """Generate the Xcode project."""
         _generate(self.config, self.workspace)

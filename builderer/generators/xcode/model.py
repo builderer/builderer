@@ -22,15 +22,21 @@ def generate_id(key: str) -> XcodeID:
 
 
 # Source Tree values used in PBXFileReference and PBXGroup
+# Only safe values are enabled - others are commented out to prevent misuse
 class SourceTree(Enum):
-    GROUP = "<group>"  # Path is relative to the group's folder
-    SOURCE_ROOT = "SOURCE_ROOT"  # Path is relative to the project's root directory
-    BUILT_PRODUCTS_DIR = (
-        "BUILT_PRODUCTS_DIR"  # Path is relative to the build products directory
-    )
-    DEVELOPER_DIR = "DEVELOPER_DIR"  # Path is relative to the developer directory
-    SDKROOT = "SDKROOT"  # Path is relative to the SDK directory
-    ABSOLUTE = "ABSOLUTE"  # Path is an absolute filesystem path
+    # GROUP - ONLY for project-level singletons (main_group, products_group)
+    # NEVER use for per-target items as paths would collide
+    GROUP = "<group>"
+    # SOURCE_ROOT - the safe default for all file references
+    # Paths must be relative to workspace root and include package/target for uniqueness
+    SOURCE_ROOT = "SOURCE_ROOT"
+    # BUILT_PRODUCTS_DIR - for product references only
+    # Paths must include package prefix for uniqueness
+    BUILT_PRODUCTS_DIR = "BUILT_PRODUCTS_DIR"
+    # Disabled - these are error-prone:
+    # DEVELOPER_DIR = "DEVELOPER_DIR"  # Relative to Xcode install - not portable
+    # SDKROOT = "SDKROOT"  # Relative to SDK - not for user files
+    # ABSOLUTE = "ABSOLUTE"  # Not portable across machines
 
 
 # Destination subfolder specifications used in PBXCopyFilesBuildPhase
@@ -168,7 +174,6 @@ class PBXFileReference(XcodeObject):
     fileEncoding: int = 4  # UTF-8 encoding, required by Xcode format
 
     def key(self) -> str:
-        """Use path for file reference key."""
         return f"PBXFileReference:{self.path}"
 
 
@@ -192,7 +197,6 @@ class PBXSourcesBuildPhase(XcodeObject):
     runOnlyForDeploymentPostprocessing: int = 0
 
     def key(self) -> str:
-        """Use class name and target name for build phase key."""
         return f"{self.__class__.__name__}:{self.target_name}"
 
 
@@ -204,7 +208,6 @@ class PBXHeadersBuildPhase(XcodeObject):
     runOnlyForDeploymentPostprocessing: int = 0
 
     def key(self) -> str:
-        """Use class name and target name for build phase key."""
         return f"{self.__class__.__name__}:{self.target_name}"
 
 
@@ -216,7 +219,6 @@ class PBXFrameworksBuildPhase(XcodeObject):
     runOnlyForDeploymentPostprocessing: int = 0
 
     def key(self) -> str:
-        """Use class name and target name for build phase key."""
         return f"{self.__class__.__name__}:{self.target_name}"
 
 
@@ -227,7 +229,6 @@ class PBXResourcesBuildPhase(XcodeObject):
     runOnlyForDeploymentPostprocessing: int = 0
 
     def key(self) -> str:
-        """Use class name for build phase key."""
         return f"{self.__class__.__name__}"
 
 
@@ -240,7 +241,6 @@ class PBXCopyFilesBuildPhase(XcodeObject):
     runOnlyForDeploymentPostprocessing: int = 0
 
     def key(self) -> str:
-        """Use class name, destination path and subfolder spec for build phase key."""
         return f"{self.__class__.__name__}:{self.dstPath}:{self.dstSubfolderSpec.name}"
 
 
@@ -255,7 +255,6 @@ class PBXShellScriptBuildPhase(XcodeObject):
     shellPath: str = "/bin/sh"
 
     def key(self) -> str:
-        """Use class name and script for build phase key."""
         return f"{self.__class__.__name__}:{hash(self.shellScript)}"
 
 
@@ -268,7 +267,6 @@ class PBXGroup(XcodeObject):
     group_id: Optional[str] = None  # Optional unique identifier for the group
 
     def key(self) -> str:
-        """Use name, path (if available), and group_id (if available) for group keys."""
         if self.path:
             return f"PBXGroup:{self.name}:{self.path}"
         elif self.group_id:
@@ -284,7 +282,6 @@ class PBXVariantGroup(XcodeObject):
     path: Optional[str] = None
 
     def key(self) -> str:
-        """Use name and path (if available) for variant group keys."""
         if self.path:
             return f"PBXVariantGroup:{self.name}:{self.path}"
         return f"PBXVariantGroup:{self.name}"
@@ -300,7 +297,6 @@ class XCVersionGroup(XcodeObject):
     versionGroupType: str = "wrapper.xcdatamodel"
 
     def key(self) -> str:
-        """Use name, path, and version group type for version group key."""
         path_part = f":{self.path}" if self.path else ""
         return f"XCVersionGroup:{self.name}{path_part}:{self.versionGroupType}"
 
@@ -356,7 +352,6 @@ class PBXBuildRule(XcodeObject):
     runOncePerArchitecture: Optional[int] = None
 
     def key(self) -> str:
-        """Use compiler spec and file type for build rule key."""
         return f"PBXBuildRule:{self.compilerSpec}:{self.fileType}"
 
 
@@ -368,7 +363,6 @@ class XCBuildConfiguration(XcodeObject):
     owner: Optional[str] = None  # disambiguate configs across project/targets
 
     def key(self) -> str:
-        """Use owner+name for build configuration key to avoid collisions."""
         owner_part = self.owner if self.owner else "GLOBAL"
         return f"XCBuildConfiguration:{owner_part}:{self.name}"
 
@@ -394,7 +388,6 @@ class PBXNativeTarget(XcodeObject):
     productType: ProductType
 
     def key(self) -> str:
-        """Use name for native target key."""
         return f"PBXNativeTarget:{self.name}"
 
 
@@ -408,7 +401,6 @@ class PBXAggregateTarget(XcodeObject):
     productName: Optional[str] = None
 
     def key(self) -> str:
-        """Use name for aggregate target key."""
         return f"PBXAggregateTarget:{self.name}"
 
 
@@ -426,7 +418,6 @@ class PBXLegacyTarget(XcodeObject):
     buildWorkingDirectory: str = ""
 
     def key(self) -> str:
-        """Use name and build tool path for target key."""
         return f"PBXLegacyTarget:{self.name}:{self.buildToolPath}"
 
 
@@ -451,7 +442,6 @@ class PBXProject(XcodeObject):
     )
 
     def key(self) -> str:
-        """Use name for project key."""
         return f"PBXProject:{self.name}"
 
 
@@ -463,7 +453,6 @@ class XCConfigurationList(XcodeObject):
     owner: Optional[str] = None  # disambiguate lists across project/targets
 
     def key(self) -> str:
-        """Use owner + contained config ids + default name to avoid collisions."""
         owner_part = self.owner if self.owner else "GLOBAL"
         if self.buildConfigurations:
             ids = ",".join(ref.id for ref in self.buildConfigurations)
