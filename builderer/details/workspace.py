@@ -113,9 +113,16 @@ class Workspace:
     def all_dependencies(
         self, package: Package, target: Target
     ) -> Iterator[tuple[Package, Target]]:
+        # Collect all reachable dependencies via BFS
         direct = [(p, t) for p, t in self.direct_dependencies(package, target)]
-        for package, target in self._breadth_first(direct):
-            yield package, target
+        all_deps = set(self._breadth_first(direct))
+        # Topologically sort and reverse so dependencies come before dependents
+        sorter: TopologicalSorter = TopologicalSorter()
+        for dep in all_deps:
+            sorter.add(dep, *[d for d in self._graph[dep] if d in all_deps])
+        # Reverse order: dependencies before dependents (for linking)
+        for dep in reversed(list(sorter.static_order())):
+            yield dep
 
     # Configure the workspace to the given build profile, this includes
     # collapsing conditional fields, expanding variables, and filtering out
@@ -220,7 +227,7 @@ class Workspace:
                     visited[dep] = True
                     queue.append(dep)
 
-    def _topological_sort(self):
+    def _topological_sort(self) -> list:
         sorter: TopologicalSorter = TopologicalSorter()
         for (p, t), deps in self._graph.items():
             sorter.add((p, t), *deps)

@@ -14,7 +14,7 @@ class ConfigContext(Context):
     FILENAME = "CONFIG.builderer"
     MODULENAME = "config"
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.buildtools: Dict[str, Callable] = {}
         self.configs: Dict[str, Config] = {}
@@ -34,7 +34,7 @@ class BuildContext(Context):
     FILENAME = "BUILD.builderer"
     MODULENAME = "build"
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.packages: Dict[str, Package] = {}
 
@@ -54,7 +54,7 @@ class RulesContext(Context):
     FILENAME = "RULES.builderer"
     MODULENAME = "rules"
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.rules: Dict[str, Callable] = {}
 
