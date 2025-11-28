@@ -11,6 +11,7 @@ setup(
         "builderer.details.tools",
         "builderer.generators.make",
         "builderer.generators.msbuild",
+        "builderer.generators.xcode",
     ],
     python_requires=">=3.9",
     entry_points={"console_scripts": ["builderer = builderer.__main__:main"]},
