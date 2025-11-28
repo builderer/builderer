@@ -1,4 +1,7 @@
+from copy import deepcopy
+
 from builderer import Config, ConditionalValue
+from builderer.details.as_iterator import str_iter
 
 
 def resolve_conditionals(config: Config, value, permissive: bool = False):
@@ -30,3 +33,13 @@ def resolve_variables(config: Config, variables: dict, value):
         return value.format_map(variables)
     else:
         return value
+
+
+# Create a baked configuration with specified architecture and build configuration.
+def bake_config(config: Config, *, architecture: str, build_config: str) -> Config:
+    assert architecture in str_iter(config.architecture)
+    assert build_config in str_iter(config.build_config)
+    config = deepcopy(config)
+    config.architecture = architecture
+    config.build_config = build_config
+    return config

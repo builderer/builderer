@@ -7,12 +7,12 @@ from typing import TextIO, List, Union
 from xml.dom.minidom import Node, Document, Element
 
 from builderer import Config
-from builderer.details.as_iterator import str_iter
+from builderer.details.as_iterator import str_iter, str_scalar
 from builderer.details.package import Package
 from builderer.details.targets.cc_binary import CCBinary
 from builderer.details.targets.cc_library import CCLibrary
 from builderer.details.targets.target import BuildTarget
-from builderer.details.variable_expansion import resolve_conditionals
+from builderer.details.variable_expansion import resolve_conditionals, bake_config
 from builderer.details.workspace import Workspace
 from builderer.generators.msbuild.utils import (
     as_msft_path,
@@ -91,13 +91,6 @@ def get_vcxproj_path(config: Config, target: BuildTarget):
 
 def get_filters_path(config: Config, target: BuildTarget):
     return get_project_root(config, target).joinpath(f"{target.name}.vcxproj.filters")
-
-
-def bake_config(config: Config, architecture: str, build_config: str):
-    config = deepcopy(config)
-    config.architecture = architecture
-    config.build_config = build_config
-    return config
 
 
 def unique_list(l: list):
@@ -313,9 +306,9 @@ class MsBuildProject:
                 "Include", f"{config.build_config}|{config.architecture}"
             )
             xconfig = append_element(xprojconfig, "Configuration")
-            append_text(xconfig, config.build_config)
+            append_text(xconfig, str_scalar(config.build_config))
             xplatform = append_element(xprojconfig, "Platform")
-            append_text(xplatform, config.architecture)
+            append_text(xplatform, str_scalar(config.architecture))
 
     def _append_globals(self, xparent: ParentNode):
         xgroup = append_element(xparent, "PropertyGroup")

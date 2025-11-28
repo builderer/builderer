@@ -8,17 +8,12 @@ from builderer.details.workspace import Workspace
 from builderer.generators.make.root_makefile import RootMakefile, TOOLCHAIN_TOOLS
 from builderer.generators.make.target_mk import TargetMk, PLATFORM_ARCH_FLAGS
 from builderer.generators.make.utils import build_config_root, is_header_only_library
+from builderer.details.variable_expansion import bake_config
+from builderer.details.as_iterator import str_scalar
 
 SUPPORTED_TOOLCHAINS = TOOLCHAIN_TOOLS.keys()
 SUPPORTED_PLATFORMS = PLATFORM_ARCH_FLAGS.keys()
 SUPPORTED_ARCHITECTURES = {k: v.keys() for k, v in PLATFORM_ARCH_FLAGS.items()}
-
-
-def bake_config(config: Config, architecture: str, build_config: str):
-    config = deepcopy(config)
-    config.architecture = architecture
-    config.build_config = build_config
-    return config
 
 
 class MakeGenerator:
@@ -46,7 +41,9 @@ class MakeGenerator:
         for config in configs:
             mk_root = Path(
                 build_config_root(
-                    config.build_root, config.architecture, config.build_config
+                    config.build_root,
+                    arch=str_scalar(config.architecture),
+                    config=str_scalar(config.build_config),
                 )
             )
             target_mks = [

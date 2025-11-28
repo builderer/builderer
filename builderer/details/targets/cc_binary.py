@@ -13,7 +13,6 @@ class CCBinary(BuildTarget):
         link_flags: list = [],
         private_defines: list = [],
         private_includes: list = [],
-        output_path: Optional[str] = None,
         **kwargs
     ):
         super().__init__(**kwargs)
@@ -23,7 +22,6 @@ class CCBinary(BuildTarget):
         self.link_flags = link_flags
         self.private_defines = private_defines
         self.private_includes = private_includes
-        self.output_path = output_path
 
     def get_file_path_fields(self) -> Iterator[Tuple[str, list]]:
         if self.srcs:

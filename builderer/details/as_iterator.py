@@ -1,7 +1,7 @@
 from typing import List, Set, Tuple, Union, Iterator
 
 
-# Make scalar string or container of straings iteratable...
+# Provide an iterator over provided strings. Typically used where you dont care if you have a scalar or set of strings.
 def str_iter(strings: Union[str, List[str], Set[str], Tuple[str]]) -> Iterator[str]:
     if isinstance(strings, (list, set, tuple)):
         for v in strings:
@@ -12,15 +12,11 @@ def str_iter(strings: Union[str, List[str], Set[str], Tuple[str]]) -> Iterator[s
         yield strings
 
 
-# Interpret strings or containers of strings as a single string,
-# throws exception if there is not exactuly 1 string...
-def as_scalar(value: Union[str, List[str], Set[str], Tuple[str]]) -> str:
+# The reverse of str_iter. If you know you should have a scalar, use this. Will raise an error if you dont.
+def str_scalar(value: Union[str, List[str], Set[str], Tuple[str]]) -> str:
     if isinstance(value, str):
         return value
-    elif isinstance(value, (list, set, tuple)):
-        items = list(value)
-        if len(items) != 1:
-            raise ValueError(f"expected exactly one value, got {len(items)}: {items}")
-        return items[0]
+    elif isinstance(value, (list, set, tuple)) and len(value) == 1:
+        return str_scalar(next(iter(value)))
     else:
-        raise TypeError(f"expected str or collection, got {type(value)}")
+        raise ValueError(f"expected str or list/set/tuple of length 1, got {value}")

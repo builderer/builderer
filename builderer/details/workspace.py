@@ -78,7 +78,7 @@ class Workspace:
                 # on all packages...
                 setattr(Package, name, rule)
         # acquire user packages
-        self.packages = {
+        self.packages: Dict[str, Package] = {
             pkg.name: pkg
             for ctx in load_recursive_contexts(self.root, BuildContext)
             for pkg in ctx.packages.values()

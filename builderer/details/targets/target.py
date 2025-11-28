@@ -60,4 +60,6 @@ class PreBuildTarget(Target):
 
 # Targets that produce their output in the target build system
 class BuildTarget(Target):
-    pass
+    def __init__(self, *, output_path: Optional[str] = None, **kwargs):
+        super().__init__(**kwargs)
+        self.output_path = output_path
