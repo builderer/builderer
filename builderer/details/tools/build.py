@@ -142,10 +142,9 @@ def build_with_xcode(
         str(build_root),
         "-parallelizeTargets",
     ]
-    # Add target if specified
+    # Add target if specified (use full name: package:target)
     if target_name:
-        _, tgt_name = target_name.split(":")
-        xcode_args.extend(["-target", tgt_name])
+        xcode_args.extend(["-target", target_name])
     else:
         xcode_args.append("-alltargets")
     # Add configuration if specified

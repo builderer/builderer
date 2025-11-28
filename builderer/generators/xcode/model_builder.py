@@ -46,6 +46,24 @@ from builderer.generators.xcode.model import (
 
 SettingValue = Union[str, YesNo]
 
+# Extensions that Xcode can compile (add to sources build phase)
+COMPILABLE_EXTENSIONS = frozenset(
+    {
+        # C/C++
+        ".c",
+        ".cc",
+        ".cpp",
+        ".cxx",
+        # Objective-C/C++
+        ".m",
+        ".mm",
+        # Assembly
+        ".s",
+        # Swift
+        ".swift",
+    }
+)
+
 
 @dataclass(frozen=True)
 class XcodeSetting:
@@ -787,6 +805,7 @@ def create_target(
     for src in target_info.sources:
         # Make paths relative to workspace root
         src_path = os.path.relpath(src, str(project_info.workspace_root))
+        _, ext = os.path.splitext(src.lower())
 
         # Check if file reference already exists
         if src_path not in file_ref_registry:
@@ -794,7 +813,7 @@ def create_target(
                 name=os.path.basename(src),
                 path=src_path,
                 sourceTree=SourceTree.SOURCE_ROOT,
-                fileType=FileType.from_extension(os.path.splitext(src)[1]),
+                fileType=FileType.from_extension(ext),
             )
             file_ref_registry[src_path] = file_ref
         else:
@@ -803,12 +822,14 @@ def create_target(
         source_refs.append(file_ref)
         sources_group.children.append(Reference(file_ref.id))
 
-        build_file = PBXBuildFile(
-            fileRef=Reference(file_ref.id),
-            name=os.path.basename(src),
-            target_name=full_name,
-        )
-        source_build_files.append(build_file)
+        # Only add compilable files to the build phase
+        if ext in COMPILABLE_EXTENSIONS:
+            build_file = PBXBuildFile(
+                fileRef=Reference(file_ref.id),
+                name=os.path.basename(src),
+                target_name=full_name,
+            )
+            source_build_files.append(build_file)
 
     # Create file references for headers (for IDE navigation only, not built)
     for hdr in target_info.headers:
