@@ -116,11 +116,15 @@ class TargetMk:
         objs_var = self.var_name("OBJS")
         deps_var = self.var_name("DEPS")
 
-        # All transitive dependencies (unique, topologically sorted)
+        # All transitive dependencies (unique, reversed for link order)
         all_dependencies = [
             (p, t)
-            for p, t in self.workspace.all_dependencies(
-                package=self.package, target=self.target
+            for p, t in reversed(
+                list(
+                    self.workspace.all_dependencies(
+                        package=self.package, target=self.target
+                    )
+                )
             )
             if isinstance(t, CCLibrary)
         ]

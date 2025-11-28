@@ -1124,8 +1124,13 @@ def create_target(
                         )
 
                     # Add explicit paths to all dependent libraries (avoids -l collisions)
-                    for dep_pkg, dep_target in project_info.workspace.all_dependencies(
-                        target_info.package, target_info.target
+                    # Reversed for correct link order (dependents before dependencies)
+                    for dep_pkg, dep_target in reversed(
+                        list(
+                            project_info.workspace.all_dependencies(
+                                target_info.package, target_info.target
+                            )
+                        )
                     ):
                         if isinstance(dep_target, CCLibrary) and dep_target.srcs:
                             dep_full_name = target_full_name(dep_pkg, dep_target)
