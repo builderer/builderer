@@ -5,8 +5,8 @@
 # as documented in the Xcode project file format.
 
 from dataclasses import dataclass, field
-from enum import Enum, auto
-from typing import Dict, List, Optional, Union, NewType, ClassVar, Set, TypeVar, Generic
+from enum import Enum
+from typing import Dict, List, Optional, Union, TypeVar, Generic
 from abc import ABC, abstractmethod
 
 import uuid
@@ -487,64 +487,3 @@ class XcodeProject:
     buildRules: List[PBXBuildRule] = field(default_factory=list)
     aggregateTargets: List[PBXAggregateTarget] = field(default_factory=list)
     legacyTargets: List[PBXLegacyTarget] = field(default_factory=list)
-
-
-# Default build settings that apply to all targets
-DEFAULT_BUILD_SETTINGS = {
-    # Compiler settings
-    "CLANG_ANALYZER_NONNULL": BuildSetting(value=YesNo.YES),
-    "CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION": BuildSetting(value=YesNo.YES_AGGRESSIVE),
-    "CLANG_ENABLE_MODULES": BuildSetting(value=YesNo.YES),
-    "CLANG_ENABLE_OBJC_ARC": BuildSetting(value=YesNo.YES),
-    "CLANG_ENABLE_OBJC_WEAK": BuildSetting(value=YesNo.YES),
-    "CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING": BuildSetting(value=YesNo.YES),
-    "CLANG_WARN_BOOL_CONVERSION": BuildSetting(value=YesNo.YES),
-    "CLANG_WARN_COMMA": BuildSetting(value=YesNo.YES),
-    "CLANG_WARN_CONSTANT_CONVERSION": BuildSetting(value=YesNo.YES),
-    "CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS": BuildSetting(value=YesNo.YES),
-    "CLANG_WARN_DIRECT_OBJC_ISA_USAGE": BuildSetting(value=YesNo.YES_ERROR),
-    "CLANG_WARN_DOCUMENTATION_COMMENTS": BuildSetting(value=YesNo.YES),
-    "CLANG_WARN_EMPTY_BODY": BuildSetting(value=YesNo.YES),
-    "CLANG_WARN_ENUM_CONVERSION": BuildSetting(value=YesNo.YES),
-    "CLANG_WARN_INFINITE_RECURSION": BuildSetting(value=YesNo.YES),
-    "CLANG_WARN_INT_CONVERSION": BuildSetting(value=YesNo.YES),
-    "CLANG_WARN_NON_LITERAL_NULL_CONVERSION": BuildSetting(value=YesNo.YES),
-    "CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF": BuildSetting(value=YesNo.YES),
-    "CLANG_WARN_OBJC_LITERAL_CONVERSION": BuildSetting(value=YesNo.YES),
-    "CLANG_WARN_OBJC_ROOT_CLASS": BuildSetting(value=YesNo.YES_ERROR),
-    "CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER": BuildSetting(value=YesNo.YES),
-    "CLANG_WARN_RANGE_LOOP_ANALYSIS": BuildSetting(value=YesNo.YES),
-    "CLANG_WARN_STRICT_PROTOTYPES": BuildSetting(value=YesNo.YES),
-    "CLANG_WARN_SUSPICIOUS_MOVE": BuildSetting(value=YesNo.YES),
-    "CLANG_WARN_UNGUARDED_AVAILABILITY": BuildSetting(value=YesNo.YES_AGGRESSIVE),
-    "CLANG_WARN_UNREACHABLE_CODE": BuildSetting(value=YesNo.YES),
-    "CLANG_WARN__DUPLICATE_METHOD_MATCH": BuildSetting(value=YesNo.YES),
-    # Build settings
-    "COPY_PHASE_STRIP": BuildSetting(value=YesNo.NO),
-    "DEBUG_INFORMATION_FORMAT": BuildSetting(value="dwarf"),
-    "ENABLE_STRICT_OBJC_MSGSEND": BuildSetting(value=YesNo.YES),
-    "ENABLE_TESTABILITY": BuildSetting(value=YesNo.YES),
-    "ENABLE_USER_SCRIPT_SANDBOXING": BuildSetting(value=YesNo.YES),
-    "GCC_DYNAMIC_NO_PIC": BuildSetting(value=YesNo.NO),
-    "GCC_NO_COMMON_BLOCKS": BuildSetting(value=YesNo.YES),
-    "GCC_OPTIMIZATION_LEVEL": BuildSetting(value=0),
-    "GCC_WARN_64_TO_32_BIT_CONVERSION": BuildSetting(value=YesNo.YES),
-    "GCC_WARN_ABOUT_RETURN_TYPE": BuildSetting(value=YesNo.YES_ERROR),
-    "GCC_WARN_UNDECLARED_SELECTOR": BuildSetting(value=YesNo.YES),
-    "GCC_WARN_UNINITIALIZED_AUTOS": BuildSetting(value=YesNo.YES_AGGRESSIVE),
-    "GCC_WARN_UNUSED_FUNCTION": BuildSetting(value=YesNo.YES),
-    "GCC_WARN_UNUSED_VARIABLE": BuildSetting(value=YesNo.YES),
-    # Metal settings
-    "MTL_ENABLE_DEBUG_INFO": BuildSetting(value="INCLUDE_SOURCE"),
-    "MTL_FAST_MATH": BuildSetting(value=YesNo.YES),
-    "ONLY_ACTIVE_ARCH": BuildSetting(value=YesNo.YES),
-}
-
-
-# Language standard mapping for compiler flags
-LANGUAGE_STANDARDS = {
-    "c": "GCC_C_LANGUAGE_STANDARD",
-    "gnu": "GCC_C_LANGUAGE_STANDARD",
-    "c++": "CLANG_CXX_LANGUAGE_STANDARD",
-    "gnu++": "CLANG_CXX_LANGUAGE_STANDARD",
-}

@@ -6,7 +6,7 @@
 
 import dataclasses
 import enum
-from typing import Dict, FrozenSet, List, Set, Union, Optional, TypeVar, cast, Type
+from typing import Dict, FrozenSet, List, Set, Union, Optional, cast, Type
 
 from builderer.generators.xcode.model import (
     XcodeObject,

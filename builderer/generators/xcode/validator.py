@@ -8,13 +8,10 @@ from builderer.generators.xcode.model import (
     FileType,
     ProductType,
     YesNo,
+    ProxyType,
     PBXReferenceProxy,
     PBXFileReference,
     PBXNativeTarget,
-    PBXAggregateTarget,
-    PBXLegacyTarget,
-    ProxyType,
-    BuildSetting,
 )
 from dataclasses import fields, is_dataclass
 import os
