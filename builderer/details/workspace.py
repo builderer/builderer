@@ -118,7 +118,7 @@ class Workspace:
         all_deps = set(self._breadth_first(direct))
         # Topologically sort (dependencies before dependents)
         sorter: TopologicalSorter = TopologicalSorter()
-        for dep in all_deps:
+        for dep in sorted(all_deps, key=lambda pt: target_full_name(*pt)):
             sorter.add(dep, *[d for d in self._graph[dep] if d in all_deps])
         return sorter.static_order()
 
