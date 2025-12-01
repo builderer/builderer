@@ -459,8 +459,8 @@ class TargetInfo:
                 source_paths = resolve_conditionals(base_config, target.srcs)
                 source_set.update(str(p) for p in source_paths)
 
-            sources = list(source_set)
-            headers = list(header_set)
+            sources = sorted(source_set)
+            headers = sorted(header_set)
 
             # Determine product type and file type
             if isinstance(target, CCLibrary):
@@ -614,8 +614,8 @@ def build_package_group_hierarchy(
         for parent in pkg_path.parents:
             if parent != Path(".") and parent != Path():
                 all_paths.add(parent)
-    # Sort paths by depth (parents before children)
-    sorted_paths = sorted(all_paths, key=lambda p: len(p.parts))
+    # Sort paths by depth (parents before children), then alphabetically for determinism
+    sorted_paths = sorted(all_paths, key=lambda p: (len(p.parts), str(p)))
     # Create groups for each path
     path_to_group: Dict[str, PBXGroup] = {}
     all_groups: List[PBXGroup] = []
@@ -735,7 +735,7 @@ def create_xcode_project(project_info: ProjectInfo) -> XcodeProject:
     product_ref_by_target: Dict[str, PBXFileReference] = {}
 
     # First pass: create all targets and their file references
-    for full_name, target_info in project_info.targets.items():
+    for full_name, target_info in sorted(project_info.targets.items()):
         # Skip header-only libraries - they don't need Xcode targets
         if isinstance(target_info.target, CCLibrary) and not target_info.sources:
             continue
@@ -773,7 +773,7 @@ def create_xcode_project(project_info: ProjectInfo) -> XcodeProject:
         project.targets.append(Reference(target_result.target.id, full_name))
 
     # Second pass: add dependencies between targets
-    for full_name, deps in project_info.dependencies.items():
+    for full_name, deps in sorted(project_info.dependencies.items()):
         # Skip if this target wasn't created (header-only library)
         if full_name not in native_target_by_name:
             continue
@@ -804,18 +804,27 @@ def create_xcode_project(project_info: ProjectInfo) -> XcodeProject:
             # Add to target's dependencies (build order only - linking is via OTHER_LDFLAGS)
             target.dependencies.append(Reference(target_dependency.id))
 
+    # Sort all list fields on all objects for deterministic output
+    for group in groups:
+        group.children.sort(key=lambda r: r.id)
+    for target in native_targets:
+        target.dependencies.sort(key=lambda r: r.id)
+    for phase in build_phases:
+        phase.files.sort(key=lambda r: r.id)
+    project.targets.sort(key=lambda r: r.id)
+
     return XcodeProject(
-        fileReferences=list(file_ref_registry.values())
-        + list(product_ref_by_target.values()),
+        fileReferences=sorted(file_ref_registry.values(), key=lambda f: f.id)
+        + sorted(product_ref_by_target.values(), key=lambda f: f.id),
         groups=groups,
-        buildFiles=build_files,
+        buildFiles=sorted(build_files, key=lambda b: b.id),
         buildPhases=build_phases,
-        nativeTargets=native_targets,
+        nativeTargets=sorted(native_targets, key=lambda t: t.id),
         project=project,
-        buildConfigurations=build_configurations,
-        configurationLists=configuration_lists,
-        targetDependencies=target_dependencies,
-        containerItemProxies=container_item_proxies,
+        buildConfigurations=sorted(build_configurations, key=lambda c: c.id),
+        configurationLists=sorted(configuration_lists, key=lambda c: c.id),
+        targetDependencies=sorted(target_dependencies, key=lambda t: t.id),
+        containerItemProxies=sorted(container_item_proxies, key=lambda c: c.id),
     )
 
 
@@ -923,7 +932,7 @@ def create_target(
     )
 
     # Each target compiles only its own source files
-    all_source_build_files = list(source_build_files)
+    all_source_build_files = sorted(source_build_files, key=lambda bf: bf.id)
 
     # Create build phases
     sources_phase = PBXSourcesBuildPhase(
