@@ -45,8 +45,13 @@ def _generate(config: Config, workspace: Workspace) -> None:
     # Format and write to disk
     project_str = format_xcode_project(project)
     project_file = output_root / "project.pbxproj"
-    with open(project_file, "w") as f:
-        f.write(project_str)
+    try:
+        existing = project_file.read_text()
+        if existing == project_str:
+            return
+    except FileNotFoundError:
+        pass
+    project_file.write_text(project_str)
 
 
 class XcodeGenerator:

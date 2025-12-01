@@ -15,22 +15,19 @@ from builderer.generators.make.utils import (
     is_apple_platform,
 )
 
-CC_EXTS = {
+CC_EXTS = (
     ".c",
     ".m",
-}
+)
 
-CXX_EXTS = {
+CXX_EXTS = (
     ".cc",
     ".cpp",
     ".cxx",
     ".mm",
-}
+)
 
-COMPILE_EXTS = {
-    *CC_EXTS,
-    *CXX_EXTS,
-}
+COMPILE_EXTS = frozenset(CC_EXTS + CXX_EXTS)
 
 # TODO: likely should be [toolchain][arch] instead...
 PLATFORM_ARCH_FLAGS = {
