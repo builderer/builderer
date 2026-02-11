@@ -22,7 +22,6 @@ from builderer.generators.msbuild.utils import (
 )
 from builderer.generators.msbuild.version import VisualStudioVersion
 
-
 # Parent nodes that support appendChild in xml.dom.minidom stubs
 ParentNode = Union[Document, Element]
 

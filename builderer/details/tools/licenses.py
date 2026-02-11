@@ -7,7 +7,6 @@ from builderer import Config
 from builderer.details.targets.target import RepositoryTarget
 from builderer.details.workspace import Workspace, target_full_name
 
-
 LICENSE_PRIORITY: tuple[str, ...] = (
     "LICENSE",
     "LICENSE.txt",
