@@ -5,6 +5,7 @@ from builderer.details.targets.cc_binary import CCBinary
 from builderer.details.targets.cc_library import CCLibrary
 from builderer.details.targets.generate_files import GenerateFiles
 from builderer.details.targets.git_repository import GitRepository
+from builderer.details.targets.https_repository import HttpsRepository
 from builderer.details.targets.target import Target
 
 
@@ -14,6 +15,9 @@ class BuiltinRules:
 
     def git_repository(self, **kwargs):
         self.outer.add_target(target_type=GitRepository, **kwargs)
+
+    def https_repository(self, **kwargs):
+        self.outer.add_target(target_type=HttpsRepository, **kwargs)
 
     def generate_files(self, **kwargs):
         self.outer.add_target(target_type=GenerateFiles, **kwargs)
