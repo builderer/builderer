@@ -80,6 +80,20 @@ pkg.git_repository(
 )
 ```
 
+### https_repository
+
+Fetches and extracts an archive from HTTPS:
+
+```python
+pkg.https_repository(
+    name = "MbedTLSRepo",
+    url = "https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-4.0.0/mbedtls-4.0.0.tar.bz2",
+    sha256 = "2f3a47f7b3a541ddef450e4867eeecb7ce2ef7776093f3a11d6d43ead6bf2827",
+)
+```
+
+`sha256` must be a 64-character hexadecimal SHA-256 digest.
+
 Reference the repository in paths using `{Package:Target}` expansion:
 
 ```python

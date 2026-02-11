@@ -84,7 +84,7 @@ CTX.add_config(
 
 Optional file that defines default compile flags and custom rule wrappers.
 
-Builderer has builtin rules (`cc_library`, `cc_binary`, `git_repository`, etc.), but they must be exposed in `RULES.builderer` to be usable in `BUILD.builderer` files. You can expose them as-is or wrap them to add workspace-wide defaults. This provides concise, readable customization across your entire project.
+Builderer has builtin rules (`cc_library`, `cc_binary`, `git_repository`, `https_repository`, etc.), but they must be exposed in `RULES.builderer` to be usable in `BUILD.builderer` files. You can expose them as-is or wrap them to add workspace-wide defaults. This provides concise, readable customization across your entire project.
 
 ### Example Rules File
 
@@ -133,6 +133,11 @@ def git_repository(ctx, **kwargs):
     ctx.builtin.git_repository(**kwargs)
 
 CTX.add_rule(git_repository)
+
+def https_repository(ctx, **kwargs):
+    ctx.builtin.https_repository(**kwargs)
+
+CTX.add_rule(https_repository)
 ```
 
 ## Conditionals
