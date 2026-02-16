@@ -1,6 +1,4 @@
 import os
-
-from collections import Counter
 from copy import deepcopy
 from pathlib import Path
 from typing import TextIO, List, Union
@@ -18,7 +16,6 @@ from builderer.generators.msbuild.utils import (
     as_msft_path,
     make_guid,
     msvc_file_rule,
-    is_compile_rule,
 )
 from builderer.generators.msbuild.version import VisualStudioVersion
 
@@ -316,6 +313,8 @@ class MsBuildProject:
             xgroup, "VCProjectVersion", self.version.vc_project_version_str
         )
         append_text_element(xgroup, "ProjectGuid", self.project_guid)
+        append_text_element(xgroup, "UseMultiToolTask", "true")
+        append_text_element(xgroup, "EnforceProcessCountAcrossBuilds", "true")
 
     def _append_dependencies(self, xparent: ParentNode):
         deps = [
@@ -344,31 +343,12 @@ class MsBuildProject:
         xgroup = append_element(xparent, "ItemGroup")
         append_comment(xgroup, group_name)
 
-        # Compute common ancestor directory for source files to create clean object file paths
-        source_files = [
-            Path(f) for f in files if is_compile_rule(msvc_file_rule(Path(f)))
-        ]
-        common_dir = Path(os.path.commonpath(source_files)) if source_files else None
-        filename_freq = Counter([s.name for s in source_files])
-
         for file in files:
-            file_path = Path(file)
-            file_rule = msvc_file_rule(file_path)
+            file_rule = msvc_file_rule(Path(file))
             xitem = append_element(xgroup, file_rule)
             xitem.setAttribute(
                 "Include", as_msft_path(os.path.relpath(file, self.project_root))
             )
-            # For compiled source files, set ObjectFileName relative to common ancestor
-            if is_compile_rule(file_rule) and filename_freq[file_path.name] > 1:
-                rel_path = Path(os.path.relpath(file_path, common_dir))
-                # If file is in common directory, just use filename; otherwise use relative path
-                if rel_path == Path(".") or rel_path == Path():
-                    obj_path = Path(file_path.with_suffix(".obj").name)
-                else:
-                    obj_path = rel_path.with_suffix(".obj")
-                append_text_element(
-                    xitem, "ObjectFileName", f"$(IntDir){as_msft_path(obj_path)}"
-                )
 
     def _append_config_properties(self, xparent: ParentNode, config: Config):
         xgroup = append_element(xparent, "PropertyGroup")
@@ -452,6 +432,7 @@ class MsBuildProject:
         # Apply compiler settings...
         for k, v in compile_settings.items():
             append_text_element(xcompile, k, v)
+        append_text_element(xcompile, "ObjectFileName", "$(IntDir)%(Directory)")
         # Remaining unknown compiler flags get passed through...
         append_text_element(xcompile, "AdditionalOptions", " ".join(unknown_cflags))
         # Defines...
