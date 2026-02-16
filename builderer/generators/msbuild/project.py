@@ -314,6 +314,7 @@ class MsBuildProject:
         )
         append_text_element(xgroup, "ProjectGuid", self.project_guid)
         append_text_element(xgroup, "UseMultiToolTask", "true")
+        append_text_element(xgroup, "EnforceProcessCountAcrossBuilds", "true")
 
     def _append_dependencies(self, xparent: ParentNode):
         deps = [
