@@ -39,14 +39,9 @@ class AppleApplication(BuildTarget):
         binary: str,
         info_plist: Optional[dict] = None,
         resources: list = [],
-        deps: list = [],
         **kwargs,
     ):
-        resolved_deps = list(deps)
-        # Ensure the app depends on its source-of-truth binary.
-        if binary not in resolved_deps:
-            resolved_deps.insert(0, binary)
-        super().__init__(deps=resolved_deps, **kwargs)
+        super().__init__(deps=[binary], **kwargs)
         self.binary = binary
         self.info_plist = dict(info_plist) if info_plist is not None else None
         _validate_info_plist_dict(target_name=self.name, info_plist=self.info_plist)
