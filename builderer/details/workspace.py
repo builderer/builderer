@@ -1,6 +1,7 @@
 import hashlib
 import os
 import pickle
+import shutil
 
 from graphlib import TopologicalSorter
 from importlib.machinery import SourceFileLoader
@@ -150,11 +151,9 @@ class Workspace:
                 [self.find_target(n, None) for n in filter_target_names]
             )
         # Configure targets...
-        for _, target in self._topological_sort():
-            # Configure sandbox paths for required targets
-            self._configure_sandbox(config=config, target=target)
-            # Expand format variables
-            self._expand_variables(config=config, target=target)
+        for package, target in self._topological_sort():
+            # Expand format variables and configure sandbox paths
+            self._expand_variables(config=config, package=package, target=target)
             # Glob path variables...
             target_root = Path(target.workspace_root)
             for _, attr in target.get_all_path_fields():
@@ -163,34 +162,54 @@ class Workspace:
             if target.sandbox:
                 target.do_pre_build()
 
-    def _configure_sandbox(self, config: Config, target: Target):
-        if not target.sandbox:
-            return
-        hasher = hashlib.blake2b()
-        hasher.update(pickle.dumps(target))
-        sandbox_hash = hasher.hexdigest()[:16]  # TODO: factor in dependencies?
-        target.sandbox_root = (
-            Path(config.sandbox_root)
-            .joinpath(target.workspace_root, target.name, sandbox_hash)
-            .as_posix()
-        )
-        # TODO: optionally delete other versions of the sandbox?
-
-    def _expand_variables(self, config: Config, target: Target):
-        # TODO: limit format visibility to direct dependencies
-        variables: Dict[str, Union[str, PackageFormatHelper]] = {
-            k: PackageFormatHelper(target.workspace_root, v)
-            for k, v in self.packages.items()
+    def _expand_variables(self, config: Config, package: Package, target: Target):
+        dep_packages = {
+            dep_package.name
+            for dep_package, _ in self.direct_dependencies(
+                package=package, target=target
+            )
         }
+        variables: Dict[str, Union[str, PackageFormatHelper]] = {
+            dep_name: PackageFormatHelper(
+                target.workspace_root, self.packages[dep_name]
+            )
+            for dep_name in dep_packages
+        }
+        # Expand path fields first (they never reference __sandbox__)
+        path_fields = list(target.get_all_path_fields())
+        path_field_ids = {id(attr) for _, attr in path_fields}
+        for _, attr in path_fields:
+            attr[:] = [
+                resolve_variables(config=config, variables=variables, value=v)
+                for v in attr
+            ]
+        # Compute sandbox hash after path expansion so dependency changes propagate
         if target.sandbox:
-            assert target.sandbox_root
+            assert target.sandbox_root is None
+            hasher = hashlib.blake2b()
+            hasher.update(pickle.dumps(target))
+            sandbox_hash = hasher.hexdigest()[:16]
+            sandbox_parent = Path(config.sandbox_root).joinpath(
+                target.workspace_root, target.name
+            )
+            target.sandbox_root = sandbox_parent.joinpath(sandbox_hash).as_posix()
+            # Delete previous versions (if any exist)...
+            if sandbox_parent.is_dir():
+                for child in sandbox_parent.iterdir():
+                    assert len(child.name) == 16 and all(
+                        c in "0123456789abcdef" for c in child.name
+                    ), f"unexpected entry in sandbox directory: {child}"
+                    if child.name != sandbox_hash:
+                        shutil.rmtree(child)
             variables["__sandbox__"] = os.path.relpath(
                 target.sandbox_root, target.workspace_root
             )
+        # Expand non-path fields (path fields already expanded above)
         for key, value in target.__dict__.items():
-            target.__dict__[key] = resolve_variables(
-                config=config, variables=variables, value=value
-            )
+            if id(value) not in path_field_ids:
+                target.__dict__[key] = resolve_variables(
+                    config=config, variables=variables, value=value
+                )
 
     def _filter_by_requested_targets(self, targets: list[tuple[Package, Target]]):
         allowed_targets = set(self._breadth_first(targets))
