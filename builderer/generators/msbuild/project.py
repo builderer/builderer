@@ -6,6 +6,7 @@ from xml.dom.minidom import Node, Document, Element
 
 from builderer import Config
 from builderer.details.as_iterator import str_iter, str_scalar
+from builderer.details.target_artifact import get_target_artifact_subpath
 from builderer.details.package import Package
 from builderer.details.targets.cc_binary import CCBinary
 from builderer.details.targets.cc_library import CCLibrary
@@ -361,24 +362,13 @@ class MsBuildProject:
         append_text_element(xgroup, "UseDebugLibraries", "true")  # TODO
         append_text_element(xgroup, "PlatformToolset", self.version.platform_toolset)
         append_text_element(xgroup, "CharacterSet", self.CHARACTER_SET)
-        if isinstance(self.target, CCBinary):
-            out_path = as_msft_path(
-                os.path.relpath(
-                    os.path.dirname(
-                        resolve_conditionals(
-                            config=config, value=self.target.output_path
-                        )
-                    ),
-                    self.project_root,
-                )
-            )
-            append_text_element(xgroup, "OutDir", f"$(ProjectDir)\\{out_path}\\")
-        else:
-            append_text_element(
-                xgroup,
-                "OutDir",
-                "$(ProjectDir)\\.lib\\$(MSBuildProjectName)\\$(Platform)-$(Configuration)\\",
-            )
+        artifact_subpath = get_target_artifact_subpath(
+            config=config, package_name=self.package.name, target=self.target
+        )
+        out_path = as_msft_path(
+            os.path.relpath(artifact_subpath.parent, self.project_root)
+        )
+        append_text_element(xgroup, "OutDir", f"$(ProjectDir)\\{out_path}\\")
         append_text_element(
             xgroup,
             "IntDir",

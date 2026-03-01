@@ -3,16 +3,18 @@ import os
 from pathlib import Path
 from typing import TextIO
 
+from builderer.details.targets.apple_application import AppleApplication
 from builderer.details.targets.cc_binary import CCBinary
 from builderer.details.targets.cc_library import CCLibrary
 from builderer.details.variable_expansion import resolve_conditionals
 from builderer.generators.make.utils import (
+    apple_application_output_path,
+    cc_binary_output_path_workspace,
     mk_target_build_path,
     phony_target_name,
     is_header_only_library,
     cc_library_output_path,
     cc_binary_output_path,
-    is_apple_platform,
 )
 
 CC_EXTS = (
@@ -28,6 +30,47 @@ CXX_EXTS = (
 )
 
 COMPILE_EXTS = frozenset(CC_EXTS + CXX_EXTS)
+
+
+def _plist_value_to_xml_lines(value, indent: str = "  ") -> list[str]:
+    if isinstance(value, str):
+        return [f"{indent}<string>{value}</string>"]
+    elif isinstance(value, bool):
+        return [f"{indent}<{str(value).lower()}/>"]
+    elif isinstance(value, int):
+        return [f"{indent}<integer>{value}</integer>"]
+    elif isinstance(value, float):
+        return [f"{indent}<real>{value}</real>"]
+    elif isinstance(value, list):
+        lines = [f"{indent}<array>"]
+        for item in value:
+            lines.extend(_plist_value_to_xml_lines(item, indent + "  "))
+        lines.append(f"{indent}</array>")
+        return lines
+    elif isinstance(value, dict):
+        lines = [f"{indent}<dict>"]
+        for key in sorted(value.keys()):
+            lines.append(f"{indent}  <key>{str(key)}</key>")
+            lines.extend(_plist_value_to_xml_lines(value[key], indent + "  "))
+        lines.append(f"{indent}</dict>")
+        return lines
+    else:
+        raise ValueError(f"unsupported info_plist value type: {type(value).__name__}")
+
+
+def _plist_dict_to_xml_text(info_plist: dict) -> str:
+    lines = [
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">',
+        '<plist version="1.0">',
+        "<dict>",
+    ]
+    for key in sorted(info_plist.keys()):
+        lines.append(f"  <key>{str(key)}</key>")
+        lines.extend(_plist_value_to_xml_lines(info_plist[key], "  "))
+    lines.extend(["</dict>", "</plist>"])
+    return "\n".join(lines)
+
 
 # TODO: likely should be [toolchain][arch] instead...
 PLATFORM_ARCH_FLAGS = {
@@ -91,6 +134,10 @@ class TargetMk:
             return cc_binary_output_path(
                 config=self.config, package=self.package, target=self.target
             )
+        elif isinstance(self.target, AppleApplication):
+            return apple_application_output_path(
+                config=self.config, package=self.package, target=self.target
+            )
         else:
             raise RuntimeError(f"unknown target type {type(self.target)}")
 
@@ -103,6 +150,14 @@ class TargetMk:
             self._write_makefile(file)
 
     def _write_makefile(self, file: TextIO):
+        if isinstance(self.target, AppleApplication):
+            self._write_apple_application_makefile(file)
+        elif isinstance(self.target, (CCLibrary, CCBinary)):
+            self._write_cc_makefile(file)
+        else:
+            raise RuntimeError(f"unsupported target type {type(self.target)}")
+
+    def _write_cc_makefile(self, file: TextIO):
         # pick some variable names...
         includes_var = self.var_name("INCLUDES")
         defines_var = self.var_name("DEFINES")
@@ -310,3 +365,60 @@ class TargetMk:
                     "\n",
                 ]
             )
+
+    def _write_apple_application_makefile(self, file: TextIO):
+        binary_package, binary_target = self.target.resolve_binary_target(
+            self.workspace, self.package
+        )
+        binary_output = cc_binary_output_path_workspace(
+            config=self.config,
+            workspace=self.workspace,
+            package=binary_package,
+            target=binary_target,
+        )
+        binary_path = Path(
+            os.path.relpath(binary_output, self.workspace.root)
+        ).as_posix()
+        info_plist = (
+            resolve_conditionals(config=self.config, value=self.target.info_plist) or {}
+        )
+        executable_name = str(info_plist.get("CFBundleExecutable", binary_target.name))
+        plist_xml_lines = _plist_dict_to_xml_text(info_plist).splitlines()
+        plist_write_lines = [
+            (
+                f"\t@$(ECHO) '{line}' > $@/Contents/Info.plist\n"
+                if idx == 0
+                else f"\t@$(ECHO) '{line}' >> $@/Contents/Info.plist\n"
+            )
+            for idx, line in enumerate(plist_xml_lines)
+        ]
+        resources = [
+            Path(os.path.relpath(resource, self.workspace.root)).as_posix()
+            for resource in resolve_conditionals(
+                config=self.config, value=self.target.resources
+            )
+        ]
+        file.writelines(
+            [
+                "# Generated by Builderer\n",
+                "\n",
+                f"{self.phony}: {self.out_path}\n",
+                "\n",
+                f"{self.out_path}: $(WORKSPACE_ROOT)/{binary_path}",
+                *[f" $(WORKSPACE_ROOT)/{resource}" for resource in resources],
+                "\n",
+                "\t@$(ECHO) Packaging $@\n",
+                "\t@rm -rf $@\n",
+                "\t@$(MKDIR) $@/Contents/MacOS\n",
+                "\t@$(MKDIR) $@/Contents/Resources\n",
+                f"\t@$(CP) $(WORKSPACE_ROOT)/{binary_path} $@/Contents/MacOS/{executable_name}\n",
+                *plist_write_lines,
+                "\t@printf 'APPL????\\n' > $@/Contents/PkgInfo\n",
+            ]
+        )
+        for resource in resources:
+            dst_name = Path(resource).name
+            file.write(
+                f"\t@$(CP) -R $(WORKSPACE_ROOT)/{resource} $@/Contents/Resources/{dst_name}\n"
+            )
+        file.write("\n")

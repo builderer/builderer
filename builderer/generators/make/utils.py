@@ -1,7 +1,12 @@
 from pathlib import Path
 
+from builderer.details.target_artifact import (
+    get_target_artifact_path,
+    get_target_artifact_subpath,
+)
+from builderer.details.targets.apple_application import AppleApplication
+from builderer.details.targets.cc_binary import CCBinary
 from builderer.details.targets.cc_library import CCLibrary
-from builderer.details.variable_expansion import resolve_conditionals
 
 
 def build_config_root(build_root: str, arch: str, config: str) -> str:
@@ -33,14 +38,21 @@ def is_apple_platform(platform_name: str):
 
 def cc_library_output_path(config, package, target):
     assert not is_header_only_library(target)
-    output_path = resolve_conditionals(config=config, value=target.output_path)
-    if output_path:
-        return f"$(WORKSPACE_ROOT)/{output_path}"
-    return f"$(LIBS_ROOT)/{package.name}/lib{target.name}.a"
+    subpath = get_target_artifact_subpath(config, package.name, target).as_posix()
+    return f"$(WORKSPACE_ROOT)/{subpath}"
 
 
 def cc_binary_output_path(config, package, target):
-    output_path = resolve_conditionals(config=config, value=target.output_path)
-    if output_path:
-        return f"$(WORKSPACE_ROOT)/{output_path}"
-    return f"$(RUNTIME_ROOT)/{package.name}/{target.name}"
+    subpath = get_target_artifact_subpath(config, package.name, target).as_posix()
+    return f"$(WORKSPACE_ROOT)/{subpath}"
+
+
+def apple_application_output_path(config, package, target):
+    assert isinstance(target, AppleApplication)
+    subpath = get_target_artifact_subpath(config, package.name, target).as_posix()
+    return f"$(WORKSPACE_ROOT)/{subpath}"
+
+
+def cc_binary_output_path_workspace(config, workspace, package, target):
+    assert isinstance(target, CCBinary)
+    return get_target_artifact_path(workspace, config, package, target)

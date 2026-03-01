@@ -10,7 +10,9 @@ import os
 from dataclasses import dataclass, field
 
 from builderer import Config
+from builderer.details.target_artifact import get_target_artifact_subpath
 from builderer.details.package import Package
+from builderer.details.targets.apple_application import AppleApplication
 from builderer.details.targets.target import BuildTarget
 from builderer.details.targets.cc_binary import CCBinary
 from builderer.details.targets.cc_library import CCLibrary
@@ -427,17 +429,20 @@ class TargetInfo:
     package: Package
     sources: List[str]  # Paths relative to workspace root
     headers: List[str]  # Paths relative to workspace root
+    resources: List[str]  # Paths relative to workspace root
     product_type: ProductType
     file_type: FileType
 
     @staticmethod
     def from_target(
         base_config: Config,
+        workspace: Workspace,
         package: Package,
         target: BuildTarget,
     ) -> "TargetInfo":
         sources: List[str] = []
         headers: List[str] = []
+        resources: List[str] = []
 
         if isinstance(target, (CCBinary, CCLibrary)):
             # Gather sources and headers across all configs
@@ -469,6 +474,18 @@ class TargetInfo:
             else:
                 product_type = ProductType.TOOL
                 file_type = FileType.EXECUTABLE
+        elif isinstance(target, AppleApplication):
+            app_source_set: Set[str] = set()
+            resource_set: Set[str] = set()
+            _, dep_binary = target.resolve_binary_target(workspace, package)
+            binary_sources = resolve_conditionals(base_config, dep_binary.srcs)
+            app_source_set.update(str(p) for p in binary_sources)
+            resource_paths = resolve_conditionals(base_config, target.resources)
+            resource_set.update(str(p) for p in resource_paths)
+            sources = sorted(app_source_set)
+            resources = sorted(resource_set)
+            product_type = ProductType.APPLICATION
+            file_type = FileType.APP
         else:
             raise ValueError(f"Unsupported target type: {type(target)}")
 
@@ -477,6 +494,7 @@ class TargetInfo:
             package=package,
             sources=sources,
             headers=headers,
+            resources=resources,
             product_type=product_type,
             file_type=file_type,
         )
@@ -512,6 +530,7 @@ class ProjectInfo:
                 continue
             targets[target_full_name(package, target)] = TargetInfo.from_target(
                 base_config=base_config,
+                workspace=workspace,
                 package=package,
                 target=target,
             )
@@ -525,6 +544,11 @@ class ProjectInfo:
                 ):
                     if isinstance(dep_target, CCLibrary):
                         deps.add(target_full_name(pkg, dep_target))
+            elif isinstance(target_info.target, AppleApplication):
+                dep_pkg, dep_target = target_info.target.resolve_binary_target(
+                    workspace, target_info.package
+                )
+                deps.add(target_full_name(dep_pkg, dep_target))
             dependencies[full_name] = deps
 
         return ProjectInfo(
@@ -560,6 +584,12 @@ def get_target_include_paths(
             resolve_conditionals(config, target_info.target.private_includes)
         ):
             includes.append(os.path.normpath(inc))
+    elif isinstance(target_info.target, AppleApplication):
+        _, dep_binary = target_info.target.resolve_binary_target(
+            project_info.workspace, target_info.package
+        )
+        for inc in str_iter(resolve_conditionals(config, dep_binary.private_includes)):
+            includes.append(os.path.normpath(inc))
     else:
         raise ValueError(f"Unsupported target type: {type(target_info.target)}")
 
@@ -588,16 +618,10 @@ def get_target_output_path(
     config: Config,
     symroot_rel: str,
 ) -> str:
-    target = target_info.target
-    # User-provided path takes precedence
-    if target.output_path is not None:
-        return resolve_conditionals(config=config, value=target.output_path)
-    # Generate path: {symroot_rel}/{build_config}/{package}/{filename}
-    if isinstance(target, CCLibrary):
-        product_filename = f"lib{target.name}.a"
-    else:
-        product_filename = target.name
-    return f"{symroot_rel}/{config.build_config}/{target_info.package.name}/{product_filename}"
+    _ = symroot_rel
+    return get_target_artifact_subpath(
+        config=config, package_name=target_info.package.name, target=target_info.target
+    ).as_posix()
 
 
 def build_package_group_hierarchy(
@@ -856,10 +880,17 @@ def create_target(
         children=[],
         group_id=f"headers:{full_name}",
     )
+    resources_group = PBXGroup(
+        name="Resources",
+        sourceTree=SourceTree.GROUP,
+        children=[],
+        group_id=f"resources:{full_name}",
+    )
     target_group.children.extend(
         [
             Reference(sources_group.id, "Sources"),
             Reference(headers_group.id, "Headers"),
+            Reference(resources_group.id, "Resources"),
         ]
     )
 
@@ -916,10 +947,35 @@ def create_target(
 
         headers_group.children.append(Reference(file_ref.id))
 
+    resource_build_files: List[PBXBuildFile] = []
+    for resource in target_info.resources:
+        resource_path = os.path.relpath(resource, str(project_info.workspace_root))
+        _, ext = os.path.splitext(resource.lower())
+        if resource_path not in file_ref_registry:
+            file_ref = PBXFileReference(
+                name=os.path.basename(resource),
+                path=resource_path,
+                sourceTree=SourceTree.SOURCE_ROOT,
+                fileType=FileType.from_extension(ext),
+            )
+            file_ref_registry[resource_path] = file_ref
+        else:
+            file_ref = file_ref_registry[resource_path]
+        resources_group.children.append(Reference(file_ref.id))
+        build_file = PBXBuildFile(
+            fileRef=Reference(file_ref.id),
+            name=os.path.basename(resource),
+            target_name=full_name,
+        )
+        resource_build_files.append(build_file)
+
     # Create product reference - path includes package to ensure uniqueness
     if isinstance(target_info.target, CCLibrary):
         product_filename = f"lib{target_info.target.name}.a"
         product_type = FileType.ARCHIVE
+    elif isinstance(target_info.target, AppleApplication):
+        product_filename = f"{target_info.target.name}.app"
+        product_type = FileType.APP
     else:
         product_filename = target_info.target.name
         product_type = FileType.EXECUTABLE
@@ -942,6 +998,13 @@ def create_target(
 
     # Create frameworks phase for dependencies
     frameworks_phase = PBXFrameworksBuildPhase(files=[], target_name=full_name)
+    resources_phase = PBXResourcesBuildPhase(
+        files=[
+            Reference(bf.id)
+            for bf in sorted(resource_build_files, key=lambda bf: bf.id)
+        ],
+        target_name=full_name,
+    )
 
     # Create configurations - one per build config per target
     target_configs = []
@@ -1024,15 +1087,22 @@ def create_target(
                 )
 
             # Add target-specific compile flags (C and C++)
-            if isinstance(target_info.target, (CCBinary, CCLibrary)):
+            if isinstance(target_info.target, (CCBinary, CCLibrary, AppleApplication)):
+                compile_target: Union[CCBinary, CCLibrary]
+                if isinstance(target_info.target, AppleApplication):
+                    _, compile_target = target_info.target.resolve_binary_target(
+                        project_info.workspace, target_info.package
+                    )
+                else:
+                    compile_target = target_info.target
                 c_flags = (
-                    resolve_conditionals(arch_config, target_info.target.c_flags)
-                    if target_info.target.c_flags
+                    resolve_conditionals(arch_config, compile_target.c_flags)
+                    if compile_target.c_flags
                     else []
                 )
                 cxx_flags = (
-                    resolve_conditionals(arch_config, target_info.target.cxx_flags)
-                    if target_info.target.cxx_flags
+                    resolve_conditionals(arch_config, compile_target.cxx_flags)
+                    if compile_target.cxx_flags
                     else []
                 )
 
@@ -1080,24 +1150,24 @@ def create_target(
                 # Add preprocessor defines
                 defines: List[str] = []
                 # Target's own defines
-                if isinstance(target_info.target, CCLibrary):
-                    if target_info.target.public_defines:
+                if isinstance(compile_target, CCLibrary):
+                    if compile_target.public_defines:
                         defines.extend(
                             resolve_conditionals(
-                                arch_config, target_info.target.public_defines
+                                arch_config, compile_target.public_defines
                             )
                         )
-                    if target_info.target.private_defines:
+                    if compile_target.private_defines:
                         defines.extend(
                             resolve_conditionals(
-                                arch_config, target_info.target.private_defines
+                                arch_config, compile_target.private_defines
                             )
                         )
-                elif isinstance(target_info.target, CCBinary):
-                    if target_info.target.private_defines:
+                else:
+                    if compile_target.private_defines:
                         defines.extend(
                             resolve_conditionals(
-                                arch_config, target_info.target.private_defines
+                                arch_config, compile_target.private_defines
                             )
                         )
                 # Add public defines from all dependencies (for both libraries and binaries)
@@ -1120,15 +1190,16 @@ def create_target(
                         BuildSetting(value=ordered_defs)
                     )
 
-                # Add linker flags for binaries
+                # Add linker flags for executable targets
                 if isinstance(target_info.target, CCBinary):
-                    ldflags: List[str] = []
+                    binary_ldflags: List[str] = []
+                    binary_link_target = target_info.target
 
                     # Add user-provided link flags
-                    if target_info.target.link_flags:
-                        ldflags.extend(
+                    if binary_link_target.link_flags:
+                        binary_ldflags.extend(
                             resolve_conditionals(
-                                arch_config, target_info.target.link_flags
+                                arch_config, binary_link_target.link_flags
                             )
                         )
 
@@ -1148,12 +1219,83 @@ def create_target(
                                 dep_output = get_target_output_path(
                                     dep_target_info, arch_config, symroot_rel
                                 )
-                                ldflags.append(f"$(SRCROOT)/{dep_output}")
+                                binary_ldflags.append(f"$(SRCROOT)/{dep_output}")
 
-                    if ldflags:
+                    if binary_ldflags:
                         settings[f"OTHER_LDFLAGS[arch={arch}]"] = BuildSetting(
-                            value=ldflags
+                            value=binary_ldflags
                         )
+                elif isinstance(target_info.target, AppleApplication):
+                    app_ldflags: List[str] = []
+                    _, app_binary = target_info.target.resolve_binary_target(
+                        project_info.workspace, target_info.package
+                    )
+                    if app_binary.link_flags:
+                        app_ldflags.extend(
+                            resolve_conditionals(arch_config, app_binary.link_flags)
+                        )
+                    for dep_pkg, dep_target in reversed(
+                        list(
+                            project_info.workspace.all_dependencies(
+                                target_info.package, target_info.target
+                            )
+                        )
+                    ):
+                        if isinstance(dep_target, CCLibrary) and dep_target.srcs:
+                            dep_full_name = target_full_name(dep_pkg, dep_target)
+                            dep_target_info = project_info.targets.get(dep_full_name)
+                            if dep_target_info:
+                                dep_output = get_target_output_path(
+                                    dep_target_info, arch_config, symroot_rel
+                                )
+                                app_ldflags.append(f"$(SRCROOT)/{dep_output}")
+                    if app_ldflags:
+                        settings[f"OTHER_LDFLAGS[arch={arch}]"] = BuildSetting(
+                            value=app_ldflags
+                        )
+
+        if isinstance(target_info.target, AppleApplication):
+            _, dep_binary = target_info.target.resolve_binary_target(
+                project_info.workspace, target_info.package
+            )
+            plist_config = bake_config(
+                project_info.base_config,
+                architecture=list(str_iter(project_info.base_config.architecture))[0],
+                build_config=build_cfg,
+            )
+            plist_dict = (
+                resolve_conditionals(plist_config, target_info.target.info_plist) or {}
+            )
+            unsupported_keys = [
+                key
+                for key, value in plist_dict.items()
+                if not isinstance(value, (str, int, float, bool))
+            ]
+            if unsupported_keys:
+                raise ValueError(
+                    f"xcode generator only supports scalar info_plist values for "
+                    f"AppleApplication '{target_info.target.name}'. Unsupported keys: "
+                    f"{', '.join(sorted(unsupported_keys))}"
+                )
+            settings["GENERATE_INFOPLIST_FILE"] = BuildSetting(value=YesNo.YES)
+            for key, value in sorted(plist_dict.items()):
+                xcode_value: Union[YesNo, str]
+                if isinstance(value, bool):
+                    xcode_value = YesNo.YES if value else YesNo.NO
+                else:
+                    xcode_value = str(value)
+                settings[f"INFOPLIST_KEY_{key}"] = BuildSetting(value=xcode_value)
+            if "LSMinimumSystemVersion" in plist_dict:
+                settings["MACOSX_DEPLOYMENT_TARGET"] = BuildSetting(
+                    value=str(plist_dict["LSMinimumSystemVersion"])
+                )
+            settings["EXECUTABLE_NAME"] = BuildSetting(
+                value=str(plist_dict.get("CFBundleExecutable", dep_binary.name))
+            )
+            if "CFBundleIdentifier" in plist_dict:
+                settings["PRODUCT_BUNDLE_IDENTIFIER"] = BuildSetting(
+                    value=str(plist_dict["CFBundleIdentifier"])
+                )
 
         # Use short target name for product (TARGET_NAME contains full_name with colon, invalid in paths)
         settings["PRODUCT_NAME"] = BuildSetting(value=target_info.target.name)
@@ -1183,6 +1325,7 @@ def create_target(
         buildPhases=[
             Reference(sources_phase.id),
             Reference(frameworks_phase.id),
+            Reference(resources_phase.id),
         ],
         buildConfigurationList=Reference(config_list.id),
         productReference=Reference(product_ref.id),
@@ -1195,9 +1338,10 @@ def create_target(
         file_references=[
             product_ref
         ],  # Only return product ref, others are in registry
-        groups=[target_group, sources_group, headers_group],
-        build_files=source_build_files,  # Headers not in build files
-        build_phases=[sources_phase, frameworks_phase],
+        groups=[target_group, sources_group, headers_group, resources_group],
+        build_files=source_build_files
+        + resource_build_files,  # Headers not in build files
+        build_phases=[sources_phase, frameworks_phase, resources_phase],
         configurations=target_configs,
         config_list=config_list,
     )

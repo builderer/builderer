@@ -21,7 +21,6 @@ Builderer generates native build files from Python-based build descriptions. It'
 | **Makefile** |           | Supported | Supported | TODO | Supported   |
 | **MSBuild**  | Supported |           |           |      |             |
 | **Xcode**    |           |           | Supported | TODO |             |
-| **Ninja**    | TODO      | TODO      | TODO      |      | TODO        |
 
 ## Why Builderer?
 

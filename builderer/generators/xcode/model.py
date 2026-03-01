@@ -225,11 +225,12 @@ class PBXFrameworksBuildPhase(XcodeObject):
 @dataclass
 class PBXResourcesBuildPhase(XcodeObject):
     files: List[Reference[PBXBuildFile]]
+    target_name: str  # Name of the target this build phase belongs to
     buildActionMask: int = 2147483647
     runOnlyForDeploymentPostprocessing: int = 0
 
     def key(self) -> str:
-        return f"{self.__class__.__name__}"
+        return f"{self.__class__.__name__}:{self.target_name}"
 
 
 @dataclass

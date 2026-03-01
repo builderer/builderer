@@ -66,6 +66,41 @@ pkg.cc_binary(
 
 Supports all the same parameters as `cc_library` except `hdrs` and `public_*` fields.
 
+`output_path` is optional. If omitted, Builderer chooses an internal default artifact
+location that is intentionally **not** API-stable. If you need a stable/predictable path
+for external tooling, set `output_path` explicitly.
+
+### apple_application
+
+Defines a macOS `.app` bundle from a `cc_binary` target:
+
+```python
+pkg.apple_application(
+    name = "myapp_bundle",
+    conditional = Condition(platform="macos"),
+    binary = ":myapp",
+    info_plist = {
+        "CFBundleIdentifier": "com.example.myapp",
+        "CFBundleVersion": "1",
+        "CFBundleShortVersionString": "1.0.0",
+    },
+    resources = [
+        "Assets/AppIcon.icns",
+        "Assets/Base.lproj/MainMenu.nib",
+    ],
+)
+```
+
+`binary` is required and must reference a `cc_binary`.  
+`resources` are copied into `Contents/Resources` of the app bundle.
+
+`info_plist` is optional and accepts a dictionary with plist-compatible values.
+Builderer applies sensible defaults for common keys if omitted.
+
+`output_path` is optional. If omitted, Builderer chooses an internal default artifact
+location that is intentionally **not** API-stable. If you need a stable/predictable
+bundle location, set `output_path` explicitly.
+
 ## External Dependencies
 
 ### git_repository
