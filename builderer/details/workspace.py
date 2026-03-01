@@ -1,6 +1,7 @@
 import hashlib
 import os
 import pickle
+import shutil
 
 from graphlib import TopologicalSorter
 from importlib.machinery import SourceFileLoader
@@ -188,11 +189,18 @@ class Workspace:
             hasher = hashlib.blake2b()
             hasher.update(pickle.dumps(target))
             sandbox_hash = hasher.hexdigest()[:16]
-            target.sandbox_root = (
-                Path(config.sandbox_root)
-                .joinpath(target.workspace_root, target.name, sandbox_hash)
-                .as_posix()
+            sandbox_parent = Path(config.sandbox_root).joinpath(
+                target.workspace_root, target.name
             )
+            target.sandbox_root = sandbox_parent.joinpath(sandbox_hash).as_posix()
+            # Delete previous versions (if any exist)...
+            if sandbox_parent.is_dir():
+                for child in sandbox_parent.iterdir():
+                    assert len(child.name) == 16 and all(
+                        c in "0123456789abcdef" for c in child.name
+                    ), f"unexpected entry in sandbox directory: {child}"
+                    if child.name != sandbox_hash:
+                        shutil.rmtree(child)
             variables["__sandbox__"] = os.path.relpath(
                 target.sandbox_root, target.workspace_root
             )
