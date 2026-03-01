@@ -150,11 +150,11 @@ class Workspace:
                 [self.find_target(n, None) for n in filter_target_names]
             )
         # Configure targets...
-        for _, target in self._topological_sort():
+        for package, target in self._topological_sort():
             # Configure sandbox paths for required targets
             self._configure_sandbox(config=config, target=target)
             # Expand format variables
-            self._expand_variables(config=config, target=target)
+            self._expand_variables(config=config, package=package, target=target)
             # Glob path variables...
             target_root = Path(target.workspace_root)
             for _, attr in target.get_all_path_fields():
@@ -176,11 +176,18 @@ class Workspace:
         )
         # TODO: optionally delete other versions of the sandbox?
 
-    def _expand_variables(self, config: Config, target: Target):
-        # TODO: limit format visibility to direct dependencies
+    def _expand_variables(self, config: Config, package: Package, target: Target):
+        dep_packages = {
+            dep_package.name
+            for dep_package, _ in self.direct_dependencies(
+                package=package, target=target
+            )
+        }
         variables: Dict[str, Union[str, PackageFormatHelper]] = {
-            k: PackageFormatHelper(target.workspace_root, v)
-            for k, v in self.packages.items()
+            dep_name: PackageFormatHelper(
+                target.workspace_root, self.packages[dep_name]
+            )
+            for dep_name in dep_packages
         }
         if target.sandbox:
             assert target.sandbox_root
