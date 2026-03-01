@@ -23,7 +23,7 @@ jobs:
       with:
         python-version: ${{ matrix.python-version }}
     - name: Install MyPy
-      run: pip install mypy black
+      run: pip install mypy==1.11.2 black==24.8.0
     - name: Clone Builderer
       uses: actions/checkout@v4
     - name: MyPy
