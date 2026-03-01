@@ -151,9 +151,7 @@ class Workspace:
             )
         # Configure targets...
         for package, target in self._topological_sort():
-            # Configure sandbox paths for required targets
-            self._configure_sandbox(config=config, target=target)
-            # Expand format variables
+            # Expand format variables and configure sandbox paths
             self._expand_variables(config=config, package=package, target=target)
             # Glob path variables...
             target_root = Path(target.workspace_root)
@@ -162,19 +160,6 @@ class Workspace:
             # Perform pre-build tasks (e.g. sandboxing, code generation, etc)...
             if target.sandbox:
                 target.do_pre_build()
-
-    def _configure_sandbox(self, config: Config, target: Target):
-        if not target.sandbox:
-            return
-        hasher = hashlib.blake2b()
-        hasher.update(pickle.dumps(target))
-        sandbox_hash = hasher.hexdigest()[:16]  # TODO: factor in dependencies?
-        target.sandbox_root = (
-            Path(config.sandbox_root)
-            .joinpath(target.workspace_root, target.name, sandbox_hash)
-            .as_posix()
-        )
-        # TODO: optionally delete other versions of the sandbox?
 
     def _expand_variables(self, config: Config, package: Package, target: Target):
         dep_packages = {
@@ -189,15 +174,34 @@ class Workspace:
             )
             for dep_name in dep_packages
         }
+        # Expand path fields first (they never reference __sandbox__)
+        path_fields = list(target.get_all_path_fields())
+        path_field_ids = {id(attr) for _, attr in path_fields}
+        for _, attr in path_fields:
+            attr[:] = [
+                resolve_variables(config=config, variables=variables, value=v)
+                for v in attr
+            ]
+        # Compute sandbox hash after path expansion so dependency changes propagate
         if target.sandbox:
-            assert target.sandbox_root
+            assert target.sandbox_root is None
+            hasher = hashlib.blake2b()
+            hasher.update(pickle.dumps(target))
+            sandbox_hash = hasher.hexdigest()[:16]
+            target.sandbox_root = (
+                Path(config.sandbox_root)
+                .joinpath(target.workspace_root, target.name, sandbox_hash)
+                .as_posix()
+            )
             variables["__sandbox__"] = os.path.relpath(
                 target.sandbox_root, target.workspace_root
             )
+        # Expand non-path fields (path fields already expanded above)
         for key, value in target.__dict__.items():
-            target.__dict__[key] = resolve_variables(
-                config=config, variables=variables, value=value
-            )
+            if id(value) not in path_field_ids:
+                target.__dict__[key] = resolve_variables(
+                    config=config, variables=variables, value=value
+                )
 
     def _filter_by_requested_targets(self, targets: list[tuple[Package, Target]]):
         allowed_targets = set(self._breadth_first(targets))
