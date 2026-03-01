@@ -1,6 +1,7 @@
 from pathlib import Path
 from typing import Dict, Type
 
+from builderer.details.targets.apple_application import AppleApplication
 from builderer.details.targets.cc_binary import CCBinary
 from builderer.details.targets.cc_library import CCLibrary
 from builderer.details.targets.generate_files import GenerateFiles
@@ -27,6 +28,9 @@ class BuiltinRules:
 
     def cc_binary(self, **kwargs):
         self.outer.add_target(target_type=CCBinary, **kwargs)
+
+    def apple_application(self, **kwargs):
+        self.outer.add_target(target_type=AppleApplication, **kwargs)
 
 
 class Package:

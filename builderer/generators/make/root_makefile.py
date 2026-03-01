@@ -15,6 +15,7 @@ from builderer.generators.make.utils import (
 )
 
 COMMON_TOOLS = {
+    "CP": "cp",
     "ECHO": "echo",
     "MKDIR": "mkdir -p",
     "RM": "rm -f",

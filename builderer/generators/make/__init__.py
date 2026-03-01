@@ -3,11 +3,16 @@ from pathlib import Path
 
 from builderer import Config
 from builderer.details.as_iterator import str_iter
+from builderer.details.targets.apple_application import AppleApplication
 from builderer.details.targets.target import BuildTarget
 from builderer.details.workspace import Workspace
 from builderer.generators.make.root_makefile import RootMakefile, TOOLCHAIN_TOOLS
 from builderer.generators.make.target_mk import TargetMk, PLATFORM_ARCH_FLAGS
-from builderer.generators.make.utils import build_config_root, is_header_only_library
+from builderer.generators.make.utils import (
+    build_config_root,
+    is_apple_platform,
+    is_header_only_library,
+)
 from builderer.details.variable_expansion import bake_config
 from builderer.details.as_iterator import str_scalar
 
@@ -29,6 +34,16 @@ class MakeGenerator:
         for arch in str_iter(self.base_config.architecture):
             if arch not in platform_archs:
                 raise ValueError(f"unsupported architecture {arch}")
+        if not is_apple_platform(self.base_config.platform):
+            apple_targets = [
+                target
+                for _, target in self.workspace.targets
+                if isinstance(target, AppleApplication)
+            ]
+            if apple_targets:
+                raise ValueError(
+                    "AppleApplication targets are currently only supported on macos with make"
+                )
 
     def __call__(self):
         makefile = RootMakefile(config=self.base_config, workspace=self.workspace)

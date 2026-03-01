@@ -2,6 +2,7 @@ from typing import List
 
 from builderer import Config
 from builderer.details.as_iterator import str_iter
+from builderer.details.targets.apple_application import AppleApplication
 from builderer.details.targets.target import BuildTarget
 from builderer.details.workspace import Workspace, target_full_name
 from builderer.generators.msbuild.project import MsBuildProject
@@ -41,6 +42,12 @@ class MsBuildGenerator:
         for arch in str_iter(self.config.architecture):
             if arch not in SUPPORTED_ARCHITECTURES:
                 raise ValueError(f"unsupported architecture {arch}")
+        if any(
+            isinstance(target, AppleApplication) for _, target in self.workspace.targets
+        ):
+            raise ValueError(
+                "AppleApplication targets are not supported by the msbuild generator"
+            )
 
     def __call__(self):
         projects = {
