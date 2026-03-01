@@ -28,6 +28,10 @@ BINARY_EXTENSION_BY_PLATFORM = {
 }
 
 
+def _normalize_app_bundle_name(name: str) -> str:
+    return name if name.endswith(".app") else f"{name}.app"
+
+
 def _default_artifact_filename(config: Config, target: BuildTarget) -> str:
     if isinstance(target, CCLibrary):
         prefix, extension = LIBRARY_NAMING_BY_PLATFORM[config.platform]
@@ -36,7 +40,7 @@ def _default_artifact_filename(config: Config, target: BuildTarget) -> str:
         extension = BINARY_EXTENSION_BY_PLATFORM[config.platform]
         return f"{target.name}{extension}"
     if isinstance(target, AppleApplication):
-        return f"{target.name}.app"
+        return _normalize_app_bundle_name(target.name)
     raise TypeError(f"unsupported build target type '{type(target).__name__}'")
 
 
@@ -65,6 +69,10 @@ def get_target_artifact_subpath(config, package_name: str, target: BuildTarget) 
     if output_path:
         return Path(output_path)
     return _default_artifact_subpath(config, package_name, target)
+
+
+def get_target_artifact_filename(config, package_name: str, target: BuildTarget) -> str:
+    return get_target_artifact_subpath(config, package_name, target).name
 
 
 def _resolve_config_variant(

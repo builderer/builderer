@@ -10,7 +10,10 @@ import os
 from dataclasses import dataclass, field
 
 from builderer import Config
-from builderer.details.target_artifact import get_target_artifact_subpath
+from builderer.details.target_artifact import (
+    get_target_artifact_subpath,
+    get_target_artifact_filename,
+)
 from builderer.details.package import Package
 from builderer.details.targets.apple_application import AppleApplication
 from builderer.details.targets.target import BuildTarget
@@ -969,15 +972,23 @@ def create_target(
         )
         resource_build_files.append(build_file)
 
-    # Create product reference - path includes package to ensure uniqueness
+    # Create product reference - path includes package to ensure uniqueness.
+    # Derive filename from shared artifact logic to avoid duplicating naming rules.
+    product_config = bake_config(
+        project_info.base_config,
+        architecture=list(str_iter(project_info.base_config.architecture))[0],
+        build_config=list(str_iter(project_info.base_config.build_config))[0],
+    )
+    product_filename = get_target_artifact_filename(
+        config=product_config,
+        package_name=target_info.package.name,
+        target=target_info.target,
+    )
     if isinstance(target_info.target, CCLibrary):
-        product_filename = f"lib{target_info.target.name}.a"
         product_type = FileType.ARCHIVE
     elif isinstance(target_info.target, AppleApplication):
-        product_filename = f"{target_info.target.name}.app"
         product_type = FileType.APP
     else:
-        product_filename = target_info.target.name
         product_type = FileType.EXECUTABLE
     product_path = f"{target_info.package.name}/{product_filename}"
     product_ref = PBXFileReference(
@@ -1297,11 +1308,12 @@ def create_target(
                     value=str(plist_dict["CFBundleIdentifier"])
                 )
 
-        # Use short target name for product (TARGET_NAME contains full_name with colon, invalid in paths)
-        settings["PRODUCT_NAME"] = BuildSetting(value=target_info.target.name)
-        if isinstance(target_info.target, CCLibrary):
-            settings["EXECUTABLE_PREFIX"] = BuildSetting(value="lib")
-            settings["EXECUTABLE_SUFFIX"] = BuildSetting(value=".a")
+        # Derive product naming from resolved artifact filename to avoid assuming
+        # any relation between target.name and output artifact naming.
+        settings["PRODUCT_NAME"] = BuildSetting(value=Path(product_filename).stem)
+        settings["FULL_PRODUCT_NAME"] = BuildSetting(value=product_filename)
+        if not isinstance(target_info.target, AppleApplication):
+            settings["EXECUTABLE_NAME"] = BuildSetting(value=product_filename)
 
         target_configs.append(
             XCBuildConfiguration(
@@ -1348,6 +1360,20 @@ def create_target(
 
 
 def generate_xcode_project(config: Config, workspace: Workspace) -> XcodeProject:
+    # Temp Hack: artifact paths are intended to be architecture-specific
+    # (e.g. .../.artifacts/arm64/... vs .../.artifacts/x86_64/...), but in
+    # multi-arch generation Xcode can switch/merge architecture outputs without
+    # targeting the matching path for each architecture.
+    # This can place universal or wrong-arch outputs in a single-arch path and
+    # then cause link steps to look for artifacts in the other arch path.
+    # TODO: Re-enable multiple architectures only after generator output paths
+    # and build settings enforce strict single-arch outputs per invocation.
+    arch_list = list(str_iter(config.architecture))
+    assert len(arch_list) == 1, (
+        "xcode generator currently requires exactly one configured architecture; "
+        f"got {arch_list!r}"
+    )
+
     # For Xcode's build matrix, we need to handle configs and architectures separately
     # We'll use the original config's build_config and architecture lists
     project_info = ProjectInfo.gather(workspace, config, [config])
