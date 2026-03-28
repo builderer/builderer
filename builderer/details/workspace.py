@@ -156,8 +156,10 @@ class Workspace:
             self._expand_variables(config=config, package=package, target=target)
             # Glob path variables...
             target_root = Path(target.workspace_root)
-            for _, attr in target.get_all_path_fields():
-                attr[:] = glob_with_exclusions(target_root, attr)
+            for _, attr in target.get_file_path_fields():
+                attr[:] = glob_with_exclusions(target_root, attr, Path.is_file)
+            for _, attr in target.get_dir_path_fields():
+                attr[:] = glob_with_exclusions(target_root, attr, Path.is_dir)
             # Perform pre-build tasks (e.g. sandboxing, code generation, etc)...
             if target.sandbox:
                 target.do_pre_build()
