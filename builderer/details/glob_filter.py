@@ -18,6 +18,7 @@ def glob_with_exclusions(root: Path, patterns: Sequence[str]) -> list[str]:
         (src, src.relative_to(root).as_posix())
         for pattern in includes
         for src in root.glob(pattern)
+        if src.is_file()
     ]
     if not excludes:
         return [src.as_posix() for src, _ in matched]
