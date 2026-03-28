@@ -2,6 +2,8 @@ import hashlib
 import os
 import pickle
 import shutil
+import stat
+import sys
 
 from graphlib import TopologicalSorter
 from importlib.machinery import SourceFileLoader
@@ -156,8 +158,10 @@ class Workspace:
             self._expand_variables(config=config, package=package, target=target)
             # Glob path variables...
             target_root = Path(target.workspace_root)
-            for _, attr in target.get_all_path_fields():
-                attr[:] = glob_with_exclusions(target_root, attr)
+            for _, attr in target.get_file_path_fields():
+                attr[:] = glob_with_exclusions(target_root, attr, Path.is_file)
+            for _, attr in target.get_dir_path_fields():
+                attr[:] = glob_with_exclusions(target_root, attr, Path.is_dir)
             # Perform pre-build tasks (e.g. sandboxing, code generation, etc)...
             if target.sandbox:
                 target.do_pre_build()
@@ -200,7 +204,15 @@ class Workspace:
                         c in "0123456789abcdef" for c in child.name
                     ), f"unexpected entry in sandbox directory: {child}"
                     if child.name != sandbox_hash:
-                        shutil.rmtree(child)
+
+                        def _remove_readonly(func, path, _):
+                            os.chmod(path, stat.S_IWRITE)
+                            func(path)
+
+                        if sys.version_info >= (3, 12):
+                            shutil.rmtree(child, onexc=_remove_readonly)
+                        else:
+                            shutil.rmtree(child, onerror=_remove_readonly)
             variables["__sandbox__"] = os.path.relpath(
                 target.sandbox_root, target.workspace_root
             )
