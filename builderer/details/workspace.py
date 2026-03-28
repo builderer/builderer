@@ -3,6 +3,7 @@ import os
 import pickle
 import shutil
 import stat
+import sys
 
 from graphlib import TopologicalSorter
 from importlib.machinery import SourceFileLoader
@@ -206,7 +207,10 @@ class Workspace:
                         def _remove_readonly(func, path, _):
                             os.chmod(path, stat.S_IWRITE)
                             func(path)
-                        shutil.rmtree(child, onexc=_remove_readonly)
+                        if sys.version_info >= (3, 12):
+                            shutil.rmtree(child, onexc=_remove_readonly)
+                        else:
+                            shutil.rmtree(child, onerror=_remove_readonly)
             variables["__sandbox__"] = os.path.relpath(
                 target.sandbox_root, target.workspace_root
             )
