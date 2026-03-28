@@ -2,6 +2,7 @@ import hashlib
 import os
 import pickle
 import shutil
+import stat
 
 from graphlib import TopologicalSorter
 from importlib.machinery import SourceFileLoader
@@ -202,7 +203,10 @@ class Workspace:
                         c in "0123456789abcdef" for c in child.name
                     ), f"unexpected entry in sandbox directory: {child}"
                     if child.name != sandbox_hash:
-                        shutil.rmtree(child)
+                        def _remove_readonly(func, path, _):
+                            os.chmod(path, stat.S_IWRITE)
+                            func(path)
+                        shutil.rmtree(child, onexc=_remove_readonly)
             variables["__sandbox__"] = os.path.relpath(
                 target.sandbox_root, target.workspace_root
             )
