@@ -204,9 +204,11 @@ class Workspace:
                         c in "0123456789abcdef" for c in child.name
                     ), f"unexpected entry in sandbox directory: {child}"
                     if child.name != sandbox_hash:
+
                         def _remove_readonly(func, path, _):
                             os.chmod(path, stat.S_IWRITE)
                             func(path)
+
                         if sys.version_info >= (3, 12):
                             shutil.rmtree(child, onexc=_remove_readonly)
                         else:
