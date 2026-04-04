@@ -67,6 +67,8 @@ def build_with_msbuild(
     )
     vswhere_args = [
         str(vswhere_path),
+        "-products",
+        "*",
         "-version",
         f"[{vs_major}.0,{vs_major + 1}.0)",
         "-prerelease",  # for 2026 Insider release support
