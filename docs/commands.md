@@ -58,6 +58,11 @@ builderer run --config=linux Tools:myapp -- --app-arg
 builderer run --config=linux Game:shooter -- --fullscreen --level=5
 ```
 
+**Platform dispatch**:
+- **windows / linux / macos** — the built binary is executed directly.
+- **macos `.app` bundles** — launched via `open --args …`.
+- **emscripten** — the JavaScript entrypoint produced by `emcc` is executed under Node.js. The artifact's `.html` is rewritten to its sibling `.js` automatically; if the target's `output_path` already ends in `.js`, it is used as-is. `node` must be on `PATH`; activating emsdk (`source emsdk_env.sh` / `emsdk_env.bat`) is the easiest way to satisfy this.
+
 ## graph
 
 Visualize or export the dependency graph. Outputs the dependency graph in DOT format to stdout. Useful for understanding target relationships.
