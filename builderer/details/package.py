@@ -7,6 +7,9 @@ from builderer.details.targets.cc_library import CCLibrary
 from builderer.details.targets.generate_files import GenerateFiles
 from builderer.details.targets.git_repository import GitRepository
 from builderer.details.targets.https_repository import HttpsRepository
+from builderer.details.targets.swift_binary import SwiftBinary
+from builderer.details.targets.swift_cc_module import SwiftCcModule
+from builderer.details.targets.swift_library import SwiftLibrary
 from builderer.details.targets.target import Target
 
 
@@ -31,6 +34,15 @@ class BuiltinRules:
 
     def apple_application(self, **kwargs):
         self.outer.add_target(target_type=AppleApplication, **kwargs)
+
+    def swift_library(self, **kwargs):
+        self.outer.add_target(target_type=SwiftLibrary, **kwargs)
+
+    def swift_binary(self, **kwargs):
+        self.outer.add_target(target_type=SwiftBinary, **kwargs)
+
+    def swift_cc_module(self, **kwargs):
+        self.outer.add_target(target_type=SwiftCcModule, **kwargs)
 
 
 class Package:

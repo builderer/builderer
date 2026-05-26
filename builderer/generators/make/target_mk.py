@@ -6,6 +6,9 @@ from typing import TextIO
 from builderer.details.targets.apple_application import AppleApplication
 from builderer.details.targets.cc_binary import CCBinary
 from builderer.details.targets.cc_library import CCLibrary
+from builderer.details.targets.swift_binary import SwiftBinary
+from builderer.details.targets.swift_cc_module import SwiftCcModule
+from builderer.details.targets.swift_library import SwiftLibrary
 from builderer.details.variable_expansion import resolve_conditionals
 from builderer.generators.make.utils import (
     apple_application_output_path,
@@ -15,6 +18,11 @@ from builderer.generators.make.utils import (
     is_header_only_library,
     cc_library_output_path,
     cc_binary_output_path,
+    swift_library_output_path,
+    swift_binary_output_path,
+    swift_module_path,
+    swift_module_dir,
+    swift_header_dir,
 )
 
 CC_EXTS = (
@@ -28,6 +36,8 @@ CXX_EXTS = (
     ".cxx",
     ".mm",
 )
+
+SWIFT_EXTS = (".swift",)
 
 COMPILE_EXTS = frozenset(CC_EXTS + CXX_EXTS)
 
@@ -73,6 +83,33 @@ def _plist_dict_to_xml_text(info_plist: dict) -> str:
 
 
 # TODO: likely should be [toolchain][arch] instead...
+SWIFT_PLATFORM_ARCH_FLAGS = {
+    # swiftc uses -target <triple> instead of -arch. We emit the bare triple
+    # (arch + os, no version). Users supply the deployment-version-bearing
+    # -target via swift_flags in their RULES.builderer; later flags win, so
+    # the user's choice overrides this default.
+    #
+    # Triples below are the canonical Swift toolchain identifiers documented
+    # by swiftlang (e.g. Linux swiftmodule paths use x86_64-unknown-linux-gnu;
+    # the Windows port targets x86_64-unknown-windows-msvc). Uncommon archs
+    # not listed here fall through to an empty string -- users supply a full
+    # -target via swift_flags.
+    "macos": {
+        "x86_64": "-target x86_64-apple-macos",
+        "arm64": "-target arm64-apple-macos",
+    },
+    "linux": {
+        "x86-64": "-target x86_64-unknown-linux-gnu",
+        # 64-bit ARM Linux uses the aarch64 triple regardless of the armvN-a name
+        "armv8-a": "-target aarch64-unknown-linux-gnu",
+        "armv9-a": "-target aarch64-unknown-linux-gnu",
+    },
+    "windows": {
+        "x64": "-target x86_64-unknown-windows-msvc",
+    },
+}
+
+
 PLATFORM_ARCH_FLAGS = {
     "linux": {
         "x86-64": "-m64 -march=x86-64",
@@ -122,7 +159,7 @@ class TargetMk:
 
     @property
     def requires_linking(self):
-        return isinstance(self.target, CCBinary)
+        return isinstance(self.target, (CCBinary, SwiftBinary))
 
     @property
     def out_path(self):
@@ -136,6 +173,14 @@ class TargetMk:
             )
         elif isinstance(self.target, AppleApplication):
             return apple_application_output_path(
+                config=self.config, package=self.package, target=self.target
+            )
+        elif isinstance(self.target, SwiftLibrary):
+            return swift_library_output_path(
+                config=self.config, package=self.package, target=self.target
+            )
+        elif isinstance(self.target, SwiftBinary):
+            return swift_binary_output_path(
                 config=self.config, package=self.package, target=self.target
             )
         else:
@@ -154,12 +199,15 @@ class TargetMk:
             self._write_apple_application_makefile(file)
         elif isinstance(self.target, (CCLibrary, CCBinary)):
             self._write_cc_makefile(file)
+        elif isinstance(self.target, (SwiftLibrary, SwiftBinary)):
+            self._write_swift_makefile(file)
         else:
             raise RuntimeError(f"unsupported target type {type(self.target)}")
 
     def _write_cc_makefile(self, file: TextIO):
         # pick some variable names...
         includes_var = self.var_name("INCLUDES")
+        build_includes_var = self.var_name("BUILD_INCLUDES")
         defines_var = self.var_name("DEFINES")
         cflags_var = self.var_name("CFLAGS")
         cxxflags_var = self.var_name("CXXFLAGS")
@@ -169,16 +217,18 @@ class TargetMk:
         deps_var = self.var_name("DEPS")
 
         # All transitive dependencies (unique, reversed for link order)
-        all_dependencies = [
-            (p, t)
-            for p, t in reversed(
+        all_dep_list = list(
+            reversed(
                 list(
                     self.workspace.all_dependencies(
                         package=self.package, target=self.target
                     )
                 )
             )
-            if isinstance(t, CCLibrary)
+        )
+        all_dependencies = [(p, t) for p, t in all_dep_list if isinstance(t, CCLibrary)]
+        swift_dependencies = [
+            (p, t) for p, t in all_dep_list if isinstance(t, SwiftLibrary)
         ]
 
         # header
@@ -237,6 +287,21 @@ class TargetMk:
             [
                 f"{includes_var} :=",
                 *[f" \\\n  {i}" for i in includes],
+                "\n\n",
+            ]
+        )
+
+        # build-tree includes: emitted Swift headers from SwiftLibrary deps (when swift_header is set).
+        # These are relative to $(BUILD_CONFIG_ROOT), not $(WORKSPACE_ROOT).
+        build_includes = [
+            swift_header_dir(dep_p, dep_t)
+            for dep_p, dep_t in swift_dependencies
+            if dep_t.swift_header
+        ]
+        file.writelines(
+            [
+                f"{build_includes_var} :=",
+                *[f" \\\n  {i}" for i in build_includes],
                 "\n\n",
             ]
         )
@@ -331,16 +396,37 @@ class TargetMk:
                 for dep_p, dep_t in all_dependencies
                 if not is_header_only_library(dep_t)
             ]
+            swift_dep_libs = [
+                swift_library_output_path(
+                    config=self.config, package=dep_p, target=dep_t
+                )
+                for dep_p, dep_t in swift_dependencies
+            ]
+            # When linking against any SwiftLibrary, drive the link with swiftc so
+            # Swift runtime + rpaths are handled automatically.
+            link_driver = "$(SWIFTC)" if swift_dependencies else "$(CCLD)"
             file.writelines(
                 [
-                    f"{self.out_path}: $({objs_var}) {' '.join(dep_libs)}\n",
+                    f"{self.out_path}: $({objs_var}) {' '.join(dep_libs + swift_dep_libs)}\n",
                     f"\t@$(ECHO) Linking $@\n" f"\t@$(MKDIR) $(dir $@)\n",
-                    f"\t@$(CCLD) $^ $({lflags_var}) -o $@\n",
+                    f"\t@{link_driver} $^ $({lflags_var}) -o $@\n",
                     "\n",
                 ]
             )
         else:
             raise RuntimeError(f"unknown target type {type(self.target)}")
+
+        # The Swift-emitted headers (if any) must exist before any cc object file
+        # that #includes them is built. Use an order-only prereq so this doesn't
+        # force unnecessary rebuilds when headers change (header changes invalidate
+        # the .swiftmodule sentinel, which propagates via the swift compile rule).
+        swift_header_paths = [
+            f"$(BUILD_CONFIG_ROOT)/{swift_header_dir(dep_p, dep_t)}/{dep_t.swift_header}"
+            for dep_p, dep_t in swift_dependencies
+            if dep_t.swift_header
+        ]
+        if swift_header_paths:
+            file.write(f"$({objs_var}): | {' '.join(swift_header_paths)}\n\n")
 
         # .c rule
         for ext in CC_EXTS:
@@ -349,7 +435,7 @@ class TargetMk:
                     f"$(filter %{ext}.o,$({objs_var})): $(OBJS_ROOT)/%.o: $(WORKSPACE_ROOT)/%\n",
                     f"\t@$(ECHO) Compiling $(notdir $<)\n",
                     f"\t@$(MKDIR) $(dir $@)\n",
-                    f"\t@$(CC) -MT $@ -MMD -MP -MF $@.d $({cflags_var}) $(addprefix -I$(WORKSPACE_ROOT)/,$({includes_var})) $(addprefix -D,$({defines_var})) -c $< -o $@\n",
+                    f"\t@$(CC) -MT $@ -MMD -MP -MF $@.d $({cflags_var}) $(addprefix -I$(WORKSPACE_ROOT)/,$({includes_var})) $(addprefix -I$(BUILD_CONFIG_ROOT)/,$({build_includes_var})) $(addprefix -D,$({defines_var})) -c $< -o $@\n",
                     "\n",
                 ]
             )
@@ -361,10 +447,192 @@ class TargetMk:
                     f"$(filter %{ext}.o,$({objs_var})): $(OBJS_ROOT)/%.o: $(WORKSPACE_ROOT)/%\n",
                     f"\t@$(ECHO) Compiling $(notdir $<)\n",
                     f"\t@$(MKDIR) $(dir $@)\n",
-                    f"\t@$(CXX) -MT $@ -MMD -MP -MF $@.d $({cxxflags_var}) $(addprefix -I$(WORKSPACE_ROOT)/,$({includes_var})) $(addprefix -D,$({defines_var})) -c $< -o $@\n",
+                    f"\t@$(CXX) -MT $@ -MMD -MP -MF $@.d $({cxxflags_var}) $(addprefix -I$(WORKSPACE_ROOT)/,$({includes_var})) $(addprefix -I$(BUILD_CONFIG_ROOT)/,$({build_includes_var})) $(addprefix -D,$({defines_var})) -c $< -o $@\n",
                     "\n",
                 ]
             )
+
+    def _write_swift_makefile(self, file: TextIO):
+        is_library = isinstance(self.target, SwiftLibrary)
+        target = self.target
+
+        srcs_var = self.var_name("SWIFT_SRCS")
+        flags_var = self.var_name("SWIFTFLAGS")
+        xcc_var = self.var_name("SWIFT_XCC")
+        modulesearch_var = self.var_name("SWIFT_MODULE_I")
+        obj_var = self.var_name("SWIFT_OBJ")
+        module_var = self.var_name("SWIFTMODULE")
+        header_var = self.var_name("SWIFTHEADER")
+        lflags_var = self.var_name("LFLAGS")
+
+        all_dep_list = list(
+            reversed(
+                list(
+                    self.workspace.all_dependencies(package=self.package, target=target)
+                )
+            )
+        )
+        cc_dependencies = [(p, t) for p, t in all_dep_list if isinstance(t, CCLibrary)]
+        swift_dependencies = [
+            (p, t) for p, t in all_dep_list if isinstance(t, SwiftLibrary)
+        ]
+        swift_cc_modules = [
+            (p, t) for p, t in all_dep_list if isinstance(t, SwiftCcModule)
+        ]
+
+        file.writelines(["# Generated by Builderer\n", "\n"])
+        file.writelines([f"{self.phony}: {self.out_path}\n", "\n"])
+
+        # source files (workspace-relative posix paths, joined with WORKSPACE_ROOT at use)
+        swift_srcs = [
+            Path(os.path.relpath(src, self.workspace.root)).as_posix()
+            for src in resolve_conditionals(config=self.config, value=target.srcs)
+            if os.path.splitext(src)[-1] in SWIFT_EXTS
+        ]
+        file.writelines(
+            [
+                f"{srcs_var} :=",
+                *[f" \\\n  {s}" for s in swift_srcs],
+                "\n\n",
+            ]
+        )
+
+        # output paths
+        obj_subpath = f".obj/{self.package.name}/{target.name}.swift.o"
+        file.write(f"{obj_var} := $(BUILD_CONFIG_ROOT)/{obj_subpath}\n")
+        if is_library:
+            file.write(
+                f"{module_var} := $(BUILD_CONFIG_ROOT)/{swift_module_path(self.package, target)}\n"
+            )
+            if target.swift_header:
+                file.write(
+                    f"{header_var} := $(BUILD_CONFIG_ROOT)/{swift_header_dir(self.package, target)}/{target.swift_header}\n"
+                )
+        file.write("\n")
+
+        # Swift flags (swiftc uses -target, not -arch)
+        swift_archflags = SWIFT_PLATFORM_ARCH_FLAGS.get(self.config.platform, {}).get(
+            self.config.architecture, ""
+        )
+        user_swift_flags = list(
+            resolve_conditionals(config=self.config, value=target.swift_flags)
+        )
+        flags = [
+            swift_archflags,
+            "-module-name",
+            target.name,
+            "-whole-module-optimization",
+            "-emit-object",
+        ]
+        if is_library:
+            flags += ["-emit-module", "-emit-module-path", f"$({module_var})"]
+            if target.swift_header:
+                emit_flag = (
+                    "-emit-clang-header-path"
+                    if target.cxx_interop
+                    else "-emit-objc-header-path"
+                )
+                flags += [emit_flag, f"$({header_var})"]
+        if target.cxx_interop:
+            flags += ["-cxx-interoperability-mode=default"]
+        flags += user_swift_flags
+        file.write(f"{flags_var} := {' '.join(flags)}\n\n")
+
+        # -Xcc flags: modulemaps from swift_cc_module deps + include/define from cc_library deps
+        xcc_flags: list[str] = []
+        for _, ccmod_t in swift_cc_modules:
+            for modmap_abs in ccmod_t.module_maps:
+                modmap_rel = Path(
+                    os.path.relpath(modmap_abs, self.workspace.root)
+                ).as_posix()
+                xcc_flags += [
+                    "-Xcc",
+                    f"-fmodule-map-file=$(WORKSPACE_ROOT)/{modmap_rel}",
+                ]
+        # All transitive cc_library deps' public includes/defines become importable surface
+        # for the Swift compile (via -Xcc to the embedded clang).
+        for _, cc_dep in cc_dependencies:
+            for inc in resolve_conditionals(
+                config=self.config, value=cc_dep.public_includes
+            ):
+                xcc_flags += ["-Xcc", f"-I$(WORKSPACE_ROOT)/{inc}"]
+            for d in resolve_conditionals(
+                config=self.config, value=cc_dep.public_defines
+            ):
+                xcc_flags += ["-Xcc", f"-D{d}"]
+        file.write(f"{xcc_var} := {' '.join(xcc_flags)}\n\n")
+
+        # -I search paths for dep swift_library .swiftmodule directories
+        module_search = []
+        for sw_p, sw_dep in swift_dependencies:
+            module_search += [
+                "-I",
+                f"$(BUILD_CONFIG_ROOT)/{swift_module_dir(sw_p, sw_dep)}",
+            ]
+        file.write(f"{modulesearch_var} := {' '.join(module_search)}\n\n")
+
+        # Output / link rule
+        if is_library:
+            file.writelines(
+                [
+                    f"{self.out_path}: $({obj_var})\n",
+                    f"\t@$(ECHO) Archiving $@\n",
+                    f"\t@$(MKDIR) $(dir $@)\n",
+                    f"\t@$(RM) $@\n",
+                    f"\t@$(AR) rcS $@ $^\n",
+                    f"\t@$(RANLIB) $@\n",
+                    "\n",
+                ]
+            )
+        else:
+            dep_libs = [
+                cc_library_output_path(config=self.config, package=dep_p, target=dep_t)
+                for dep_p, dep_t in cc_dependencies
+                if not is_header_only_library(dep_t)
+            ]
+            swift_dep_libs = [
+                swift_library_output_path(
+                    config=self.config, package=dep_p, target=dep_t
+                )
+                for dep_p, dep_t in swift_dependencies
+            ]
+            user_link_flags = list(
+                resolve_conditionals(config=self.config, value=target.link_flags)
+            )
+            file.write(
+                f"{lflags_var} := {swift_archflags} {' '.join(user_link_flags)}\n\n"
+            )
+            file.writelines(
+                [
+                    f"{self.out_path}: $({obj_var}) {' '.join(dep_libs + swift_dep_libs)}\n",
+                    f"\t@$(ECHO) Linking $@\n",
+                    f"\t@$(MKDIR) $(dir $@)\n",
+                    f"\t@$(SWIFTC) $^ $({lflags_var}) -o $@\n",
+                    "\n",
+                ]
+            )
+
+        # Swift compile rule: produces .o (+ .swiftmodule and emitted header for libraries).
+        # Prereqs: source files + dep .swiftmodules (so make orders swift→swift correctly).
+        compile_outputs = [f"$({obj_var})"]
+        if is_library:
+            compile_outputs.append(f"$({module_var})")
+            if target.swift_header:
+                compile_outputs.append(f"$({header_var})")
+        compile_prereqs = [f"$(addprefix $(WORKSPACE_ROOT)/,$({srcs_var}))"]
+        for dep_p, dep_t in swift_dependencies:
+            compile_prereqs.append(
+                f"$(BUILD_CONFIG_ROOT)/{swift_module_path(dep_p, dep_t)}"
+            )
+        file.write(f"{' '.join(compile_outputs)}: {' '.join(compile_prereqs)}\n")
+        file.write(f"\t@$(ECHO) Compiling Swift module {target.name}\n")
+        for out_ref in compile_outputs:
+            file.write(f"\t@$(MKDIR) $(dir {out_ref})\n")
+        file.write(
+            f"\t@$(SWIFTC) $({flags_var}) $({xcc_var}) $({modulesearch_var})"
+            f" -o $({obj_var})"
+            f" $(addprefix $(WORKSPACE_ROOT)/,$({srcs_var}))\n\n"
+        )
 
     def _write_apple_application_makefile(self, file: TextIO):
         binary_package, binary_target = self.target.resolve_binary_target(

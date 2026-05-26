@@ -1,6 +1,7 @@
 from typing import Iterator, Optional, Tuple
 
 from builderer.details.targets.cc_binary import CCBinary
+from builderer.details.targets.swift_binary import SwiftBinary
 from builderer.details.targets.target import BuildTarget
 
 
@@ -57,9 +58,9 @@ class AppleApplication(BuildTarget):
 
     def resolve_binary_target(self, workspace, package):
         dep_package, dep_target = workspace.find_target(self.binary, package)
-        if not isinstance(dep_target, CCBinary):
+        if not isinstance(dep_target, (CCBinary, SwiftBinary)):
             raise ValueError(
                 f"AppleApplication '{self.name}' expects binary='{self.binary}' "
-                f"to reference a cc_binary target"
+                f"to reference a cc_binary or swift_binary target"
             )
         return dep_package, dep_target
