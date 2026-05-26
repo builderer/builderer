@@ -1,3 +1,4 @@
+import shutil
 import subprocess
 import sys
 from argparse import ArgumentParser
@@ -58,7 +59,37 @@ def run_main(
     )
     assert artifact_path.exists()
     # Execute the built artifact directly, or launch macOS bundles via open.
-    if config.platform == "macos" and artifact_path.suffix == ".app":
+    if config.platform == "emscripten":
+        node = shutil.which("node")
+        if node is None:
+            print(
+                "ERROR: `node` not found in PATH. Install Node.js, or activate "
+                "emsdk (`source emsdk_env.sh` / `emsdk_env.bat`) so its bundled "
+                "Node is on PATH.",
+                file=sys.stderr,
+            )
+            return 1
+        if artifact_path.suffix == ".html":
+            js_path = artifact_path.with_suffix(".js")
+        elif artifact_path.suffix == ".js":
+            js_path = artifact_path
+        else:
+            print(
+                f"ERROR: emscripten artifact {artifact_path} must have a .html "
+                "or .js suffix to run under node.",
+                file=sys.stderr,
+            )
+            return 1
+        if not js_path.exists():
+            print(
+                f"ERROR: expected JavaScript entrypoint {js_path} was not "
+                "produced by the build.",
+                file=sys.stderr,
+            )
+            return 1
+        print(f"\nRunning {js_path} under node...")
+        run_args = [node, str(js_path.resolve()), *binary_args]
+    elif config.platform == "macos" and artifact_path.suffix == ".app":
         print(f"\nRunning {artifact_path}...")
         run_args = ["open", str(artifact_path.resolve()), "--args", *binary_args]
     else:
