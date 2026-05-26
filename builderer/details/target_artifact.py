@@ -8,6 +8,8 @@ from builderer.details.package import Package
 from builderer.details.targets.apple_application import AppleApplication
 from builderer.details.targets.cc_binary import CCBinary
 from builderer.details.targets.cc_library import CCLibrary
+from builderer.details.targets.swift_binary import SwiftBinary
+from builderer.details.targets.swift_library import SwiftLibrary
 from builderer.details.targets.target import BuildTarget
 from builderer.details.variable_expansion import resolve_conditionals
 from builderer.details.workspace import Workspace
@@ -33,10 +35,10 @@ def _normalize_app_bundle_name(name: str) -> str:
 
 
 def _default_artifact_filename(config: Config, target: BuildTarget) -> str:
-    if isinstance(target, CCLibrary):
+    if isinstance(target, (CCLibrary, SwiftLibrary)):
         prefix, extension = LIBRARY_NAMING_BY_PLATFORM[config.platform]
         return f"{prefix}{target.name}{extension}"
-    if isinstance(target, CCBinary):
+    if isinstance(target, (CCBinary, SwiftBinary)):
         extension = BINARY_EXTENSION_BY_PLATFORM[config.platform]
         return f"{target.name}{extension}"
     if isinstance(target, AppleApplication):
@@ -45,9 +47,9 @@ def _default_artifact_filename(config: Config, target: BuildTarget) -> str:
 
 
 def _default_artifact_subpath(config, package_name: str, target: BuildTarget) -> Path:
-    if isinstance(target, CCLibrary):
+    if isinstance(target, (CCLibrary, SwiftLibrary)):
         kind = "libs"
-    elif isinstance(target, CCBinary):
+    elif isinstance(target, (CCBinary, SwiftBinary)):
         kind = "binaries"
     elif isinstance(target, AppleApplication):
         kind = "applications"

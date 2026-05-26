@@ -12,7 +12,7 @@
 
 ## What is Builderer?
 
-Builderer generates native build files from Python-based build descriptions. It's designed for C/C++/Objective-C projects that need to support multiple platforms and toolchains without the complexity of traditional meta-build systems.
+Builderer generates native build files from Python-based build descriptions. It's designed for C/C++/Objective-C/Swift projects that need to support multiple platforms and toolchains without the complexity of traditional meta-build systems.
 
 ### Supported Platforms and Build Systems
 

@@ -35,6 +35,7 @@ TOOLCHAIN_TOOLS = {
         "CCLD": "g++",
         "AR": "ar",
         "RANLIB": "ranlib",
+        "SWIFTC": "swiftc",
     },
     "clang": {
         "CC": "clang",
@@ -42,6 +43,7 @@ TOOLCHAIN_TOOLS = {
         "CCLD": "clang++",
         "AR": "ar",
         "RANLIB": "ranlib",
+        "SWIFTC": "swiftc",
     },
 }
 

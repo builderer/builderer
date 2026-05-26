@@ -101,6 +101,114 @@ Builderer applies sensible defaults for common keys if omitted.
 location that is intentionally **not** API-stable. If you need a stable/predictable
 bundle location, set `output_path` explicitly.
 
+`binary` may reference either a `cc_binary` or a `swift_binary`.
+
+## Swift Targets
+
+Builderer supports Swift via three target types. Swift targets interoperate with
+C and C++ cleanly in both directions; `cc_library` is not modified to accommodate
+Swift — the bridging lives entirely on the Swift side.
+
+### swift_library
+
+Defines a Swift static library:
+
+```python
+pkg.swift_library(
+    name = "Greeter",
+    srcs = ["Greeter/*.swift"],
+    swift_flags = ["-target", "arm64-apple-macos13.0"],
+    deps = [
+        ":CalcBridge",    # swift_cc_module to import C/C++ symbols
+        ":OtherSwift",    # other swift_library to import Swift modules
+    ],
+    cxx_interop = False,  # set True to enable -cxx-interoperability-mode=default
+    swift_header = None,  # set to a filename (e.g. "Greeter-Swift.h") to expose
+                          # the library to C/C++ consumers; unset = Swift-only
+)
+```
+
+- `srcs` — `.swift` files. Whole-module compilation: every change to any source
+  triggers a full module rebuild.
+- `swift_header` — opt-in. When set (e.g. `"Greeter-Swift.h"`), swiftc emits the
+  C-callable header at a deterministic build-output location and C/C++ consumers
+  can `#include "Greeter-Swift.h"`. When unset (default), no header is emitted
+  and the library is Swift-only.
+- `cxx_interop` — when `True`, enables `-cxx-interoperability-mode=default` so
+  Swift code can `import` C++ modules (templates, classes, `std::string`), and
+  the emitted header (if any) is written in C++ dialect rather than Obj-C.
+- Module name is always the target `name`. Downstream Swift code does
+  `import Greeter`.
+
+### swift_binary
+
+Defines a Swift executable:
+
+```python
+pkg.swift_binary(
+    name = "calc",
+    srcs = ["calc/*.swift"],
+    swift_flags = ["-target", "arm64-apple-macos13.0"],
+    link_flags = [
+        "-target", "arm64-apple-macos13.0",  # also needed at link time
+        "-framework", "SwiftUI",
+    ],
+    deps = [":CalcBridge"],
+    cxx_interop = False,
+)
+```
+
+- `link_flags` is processed by `swiftc` acting as the link driver (so Swift
+  runtime and rpaths are handled automatically). `-target` must appear in
+  **both** `swift_flags` and `link_flags`; define a shared variable in your
+  `RULES.builderer` to keep it DRY.
+- When a `cc_binary` transitively depends on a `swift_library`, Builderer
+  automatically switches that binary's linker driver from `$(CCLD)` to
+  `$(SWIFTC)` so the Swift runtime is linked correctly.
+
+### swift_cc_module
+
+Adapts one or more `cc_library` targets so they can be `import`-ed from Swift:
+
+```python
+pkg.swift_cc_module(
+    name = "CalcBridge",
+    module_maps = ["calc/Lib/CalcBridge.modulemap"],
+    deps = [":calc_lib"],
+)
+```
+
+- `module_maps` — list of hand-authored `.modulemap` files. Each file declares
+  one or more clang modules whose names become Swift `import` names.
+- `deps` — the `cc_library` targets whose public headers the modulemap(s)
+  reference.
+- This target produces no compiled artifact; it's a metadata target. When a
+  `swift_library` or `swift_binary` depends on it, Builderer adds the right
+  `-Xcc -fmodule-map-file=…` and `-Xcc -I…` flags to the swiftc invocation,
+  and propagates the cc_library's `.a` files as link inputs.
+
+Example modulemap (`calc/Lib/CalcBridge.modulemap`):
+
+```
+module CalcBridge {
+    header "calc.h"
+    export *
+}
+```
+
+A `cc_library` is never modified to expose itself to Swift — the modulemap and
+the `swift_cc_module` are how that decision lives on the Swift side. The same
+pattern can be used to bind any other language to C in the future without
+polluting `cc_library`.
+
+### Interop matrix
+
+| Direction | Bridge needed? | User authors | Builderer arranges |
+|---|---|---|---|
+| swift → swift | No | nothing extra | `-I` for `.swiftmodule`, link `.a` |
+| swift → C/C++ | **`swift_cc_module`** | `.modulemap` | `-Xcc -fmodule-map-file=…`, `-Xcc -I…`, link cc `.a` |
+| C/C++ → swift | No — set `swift_header` on the `swift_library` | `@_cdecl`/`public` Swift APIs | `-emit-objc-header-path`, `-I` to consumer, swap linker driver to `swiftc` |
+
 ## External Dependencies
 
 ### git_repository

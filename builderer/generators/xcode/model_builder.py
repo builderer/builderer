@@ -19,6 +19,9 @@ from builderer.details.targets.apple_application import AppleApplication
 from builderer.details.targets.target import BuildTarget
 from builderer.details.targets.cc_binary import CCBinary
 from builderer.details.targets.cc_library import CCLibrary
+from builderer.details.targets.swift_binary import SwiftBinary
+from builderer.details.targets.swift_cc_module import SwiftCcModule
+from builderer.details.targets.swift_library import SwiftLibrary
 from builderer.details.workspace import Workspace, target_full_name
 from builderer.details.variable_expansion import resolve_conditionals, bake_config
 from builderer.details.as_iterator import str_iter
@@ -477,6 +480,18 @@ class TargetInfo:
             else:
                 product_type = ProductType.TOOL
                 file_type = FileType.EXECUTABLE
+        elif isinstance(target, (SwiftBinary, SwiftLibrary)):
+            swift_source_set: Set[str] = set()
+            swift_source_paths = resolve_conditionals(base_config, target.srcs)
+            swift_source_set.update(str(p) for p in swift_source_paths)
+            sources = sorted(swift_source_set)
+            headers = []
+            if isinstance(target, SwiftLibrary):
+                product_type = ProductType.STATIC_LIBRARY
+                file_type = FileType.EXECUTABLE
+            else:
+                product_type = ProductType.TOOL
+                file_type = FileType.EXECUTABLE
         elif isinstance(target, AppleApplication):
             app_source_set: Set[str] = set()
             resource_set: Set[str] = set()
@@ -541,11 +556,16 @@ class ProjectInfo:
         # Second pass: gather dependencies
         for full_name, target_info in targets.items():
             deps = set()
-            if isinstance(target_info.target, (CCBinary, CCLibrary)):
+            if isinstance(
+                target_info.target,
+                (CCBinary, CCLibrary, SwiftBinary, SwiftLibrary),
+            ):
                 for pkg, dep_target in workspace.all_dependencies(
                     target_info.package, target_info.target
                 ):
-                    if isinstance(dep_target, CCLibrary):
+                    if isinstance(dep_target, (CCLibrary, SwiftLibrary)) and getattr(
+                        dep_target, "srcs", None
+                    ):
                         deps.add(target_full_name(pkg, dep_target))
             elif isinstance(target_info.target, AppleApplication):
                 dep_pkg, dep_target = target_info.target.resolve_binary_target(
@@ -591,8 +611,16 @@ def get_target_include_paths(
         _, dep_binary = target_info.target.resolve_binary_target(
             project_info.workspace, target_info.package
         )
-        for inc in str_iter(resolve_conditionals(config, dep_binary.private_includes)):
-            includes.append(os.path.normpath(inc))
+        if isinstance(dep_binary, CCBinary):
+            for inc in str_iter(
+                resolve_conditionals(config, dep_binary.private_includes)
+            ):
+                includes.append(os.path.normpath(inc))
+        # SwiftBinary has no *_includes fields; Swift gets clang search paths via -Xcc.
+    elif isinstance(target_info.target, (SwiftBinary, SwiftLibrary)):
+        # Swift targets have no *_includes of their own; transitive cc deps
+        # contribute below.
+        pass
     else:
         raise ValueError(f"Unsupported target type: {type(target_info.target)}")
 
@@ -1026,6 +1054,20 @@ def create_target(
     objroot_rel = os.path.join(build_root_dir, ".xcode-obj", project_stem)
     symroot_rel = os.path.join(build_root_dir, ".xcode-sym", project_stem)
 
+    # Resolve the effective compile target once. For AppleApplication, this is the
+    # wrapped binary (so the .app's compile/link settings match the binary it wraps).
+    effective_target: Union[CCBinary, CCLibrary, SwiftBinary, SwiftLibrary, None]
+    if isinstance(target_info.target, AppleApplication):
+        _, effective_target = target_info.target.resolve_binary_target(
+            project_info.workspace, target_info.package
+        )
+    elif isinstance(
+        target_info.target, (CCBinary, CCLibrary, SwiftBinary, SwiftLibrary)
+    ):
+        effective_target = target_info.target
+    else:
+        effective_target = None
+
     for build_cfg in str_iter(project_info.base_config.build_config):
         # Start with empty settings; do not inject defaults
         settings: Dict[str, BuildSetting] = {}
@@ -1097,15 +1139,9 @@ def create_target(
                     value=[f"$(SRCROOT)/{p}" for p in include_paths]
                 )
 
-            # Add target-specific compile flags (C and C++)
-            if isinstance(target_info.target, (CCBinary, CCLibrary, AppleApplication)):
-                compile_target: Union[CCBinary, CCLibrary]
-                if isinstance(target_info.target, AppleApplication):
-                    _, compile_target = target_info.target.resolve_binary_target(
-                        project_info.workspace, target_info.package
-                    )
-                else:
-                    compile_target = target_info.target
+            # Add target-specific compile flags (C and C++) — skip for Swift effective targets
+            if isinstance(effective_target, (CCBinary, CCLibrary)):
+                compile_target: Union[CCBinary, CCLibrary] = effective_target
                 c_flags = (
                     resolve_conditionals(arch_config, compile_target.c_flags)
                     if compile_target.c_flags
@@ -1264,6 +1300,85 @@ def create_target(
                         settings[f"OTHER_LDFLAGS[arch={arch}]"] = BuildSetting(
                             value=app_ldflags
                         )
+
+            elif isinstance(effective_target, (SwiftBinary, SwiftLibrary)):
+                swift_target = effective_target
+
+                # Pass user-provided swift flags through to swiftc
+                user_swift_flags = list(
+                    str_iter(
+                        resolve_conditionals(arch_config, swift_target.swift_flags)
+                    )
+                )
+
+                # For every swift_cc_module in transitive deps, pass its modulemap to
+                # swiftc's embedded clang. The cc_library include paths come via
+                # HEADER_SEARCH_PATHS (Xcode also forwards those as -Xcc -I to swiftc).
+                xcc_flags: List[str] = []
+                for dep_pkg, dep_target in project_info.workspace.all_dependencies(
+                    target_info.package, target_info.target
+                ):
+                    if isinstance(dep_target, SwiftCcModule):
+                        for modmap_abs in dep_target.module_maps:
+                            modmap_rel = os.path.relpath(
+                                modmap_abs, str(project_info.workspace_root)
+                            )
+                            xcc_flags += [
+                                "-Xcc",
+                                f"-fmodule-map-file=$(SRCROOT)/{modmap_rel}",
+                            ]
+
+                other_swift = user_swift_flags + xcc_flags
+                if other_swift:
+                    settings[f"OTHER_SWIFT_FLAGS[arch={arch}]"] = BuildSetting(
+                        value=other_swift
+                    )
+
+                if swift_target.cxx_interop:
+                    settings["SWIFT_OBJC_INTEROP_MODE"] = BuildSetting(value="objcxx")
+
+                # Link flags: user-provided + transitive cc/swift dep .a files
+                if isinstance(swift_target, SwiftBinary):
+                    swift_ldflags: List[str] = []
+                    if swift_target.link_flags:
+                        swift_ldflags.extend(
+                            resolve_conditionals(arch_config, swift_target.link_flags)
+                        )
+                    for dep_pkg, dep_target in reversed(
+                        list(
+                            project_info.workspace.all_dependencies(
+                                target_info.package, target_info.target
+                            )
+                        )
+                    ):
+                        if isinstance(
+                            dep_target, (CCLibrary, SwiftLibrary)
+                        ) and getattr(dep_target, "srcs", None):
+                            dep_full_name = target_full_name(dep_pkg, dep_target)
+                            dep_target_info = project_info.targets.get(dep_full_name)
+                            if dep_target_info:
+                                dep_output = get_target_output_path(
+                                    dep_target_info, arch_config, symroot_rel
+                                )
+                                swift_ldflags.append(f"$(SRCROOT)/{dep_output}")
+                    if swift_ldflags:
+                        settings[f"OTHER_LDFLAGS[arch={arch}]"] = BuildSetting(
+                            value=swift_ldflags
+                        )
+
+        # Swift target-level settings (not per-arch). Applies to direct swift_library/
+        # swift_binary targets and to AppleApplications wrapping a swift_binary.
+        if isinstance(effective_target, (SwiftBinary, SwiftLibrary)):
+            settings["SWIFT_VERSION"] = BuildSetting(value="5.0")
+            if isinstance(effective_target, SwiftLibrary):
+                settings["DEFINES_MODULE"] = BuildSetting(value=YesNo.YES)
+                settings["PRODUCT_MODULE_NAME"] = BuildSetting(
+                    value=effective_target.name
+                )
+                if effective_target.swift_header:
+                    settings["SWIFT_OBJC_INTERFACE_HEADER_NAME"] = BuildSetting(
+                        value=effective_target.swift_header
+                    )
 
         if isinstance(target_info.target, AppleApplication):
             _, dep_binary = target_info.target.resolve_binary_target(
