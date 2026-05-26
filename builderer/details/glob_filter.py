@@ -13,18 +13,20 @@ def glob_with_exclusions(root: Path, patterns: Sequence[str], predicate) -> list
     includes, excludes = split_patterns(patterns)
     if not includes:
         return []
-    # Collect all paths matching include patterns
-    matched = [
-        (src, src.relative_to(root).as_posix())
-        for pattern in includes
-        for src in root.glob(pattern)
-        if predicate(src)
-    ]
+    # Collect all paths matching include patterns. Dedupe + sort so the result
+    # is filesystem-traversal-order independent (callers feed this into hashes).
+    matched = sorted(
+        {
+            (src.as_posix(), src.relative_to(root).as_posix())
+            for pattern in includes
+            for src in root.glob(pattern)
+            if predicate(src)
+        }
+    )
     if not excludes:
-        return [src.as_posix() for src, _ in matched]
-    # Filter out files matching any exclude pattern (using relative paths for matching)
+        return [src for src, _ in matched]
     return [
-        src.as_posix()
+        src
         for src, rel_path in matched
         if not any(fnmatch.fnmatch(rel_path, exclude) for exclude in excludes)
     ]

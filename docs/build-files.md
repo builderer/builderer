@@ -143,16 +143,19 @@ pkg.cc_library(
 
 ### generate_files
 
-Generates files during build file generation (not during compilation). The generator script runs when you execute `builderer generate` or `builderer build`, before the native build system is invoked.
+Generates files during build file generation (not during compilation). The generator command runs when you execute `builderer generate` or `builderer build`, before the native build system is invoked.
 
 ```python
 pkg.generate_files(
     name = "generated_config",
-    generator = "scripts/generate_config.py",
-    outputs = ["generated/config.h"],
-    inputs = ["config.yml"],            # Optional dependencies
+    args = ["{__python__}", "scripts/generate_config.py", "config.yml"],
+    srcs = ["scripts/generate_config.py", "config.yml"],
 )
 ```
+
+`args` is the command line invoked from the package's workspace root. Use the `{__python__}` template variable to invoke the Python interpreter currently running builderer — this resolves to `sys.executable` at run time but keeps the sandbox hash stable across shells/IDEs/CI (whereas hardcoding `sys.executable` would bake an env-specific path into the hash and fragment the sandbox).
+
+`srcs` declares the files whose modification time is folded into the sandbox hash — `touch`ing or editing a script or input data invalidates the sandbox and re-runs the generator, same as `make`. `srcs` supports `{Package:TargetName}` path expansion and glob patterns just like `cc_library.srcs`.
 
 Generated files are placed in the sandbox and can be referenced in other targets using `{Package:TargetName}` path expansion (remember to add it to `deps`).
 

@@ -1,8 +1,6 @@
 import hashlib
 import os
 import pickle
-import shutil
-import stat
 import sys
 
 from graphlib import TopologicalSorter
@@ -12,6 +10,7 @@ from pathlib import Path
 from typing import Dict, Iterable, Union, Type, Iterator, Optional, Callable
 
 from builderer import Config
+from builderer.conditional import ConditionalValue
 from builderer.details.context import ConfigContext, RulesContext, BuildContext
 from builderer.details.glob_filter import glob_with_exclusions
 from builderer.details.package import Package
@@ -62,7 +61,15 @@ class PackageFormatHelper:
         self.pkg = pkg
 
     def __format__(self, spec: str):
-        return os.path.relpath(self.pkg.targets[spec].root, self.root)
+        dep_target = self.pkg.targets[spec]
+        if not dep_target.sandbox:
+            raise ValueError(
+                f"{self.pkg.name}:{spec} is not sandboxed; only sandboxed "
+                f"targets (git_repository, https_repository, generate_files, "
+                f"cc_library(sandbox=True)) can be referenced via "
+                f"{{Pkg:target}} path expansion."
+            )
+        return os.path.relpath(dep_target.root, self.root)
 
 
 class Workspace:
@@ -154,14 +161,7 @@ class Workspace:
             )
         # Configure targets...
         for package, target in self._topological_sort():
-            # Expand format variables and configure sandbox paths
             self._expand_variables(config=config, package=package, target=target)
-            # Glob path variables...
-            target_root = Path(target.workspace_root)
-            for _, attr in target.get_file_path_fields():
-                attr[:] = glob_with_exclusions(target_root, attr, Path.is_file)
-            for _, attr in target.get_dir_path_fields():
-                attr[:] = glob_with_exclusions(target_root, attr, Path.is_dir)
             # Perform pre-build tasks (e.g. sandboxing, code generation, etc)...
             if target.sandbox:
                 target.do_pre_build()
@@ -187,35 +187,53 @@ class Workspace:
                 resolve_variables(config=config, variables=variables, value=v)
                 for v in attr
             ]
-        # Compute sandbox hash after path expansion so dependency changes propagate
+        # Glob path fields before hashing so the hash sees the actual file list.
+        target_root = Path(target.workspace_root)
+        for field, attr in target.get_all_path_fields():
+            if target.sandbox and any(isinstance(v, ConditionalValue) for v in attr):
+                raise ValueError(
+                    f"{package.name}:{target.name}.{field}: sandboxed targets "
+                    f"cannot have build_config/architecture conditionals in path fields"
+                )
+        for _, attr in target.get_file_path_fields():
+            attr[:] = glob_with_exclusions(target_root, attr, Path.is_file)
+        for _, attr in target.get_dir_path_fields():
+            attr[:] = glob_with_exclusions(target_root, attr, Path.is_dir)
+        # Compute sandbox hash from the rule description plus mtime/size of every
+        # declared input file. mtime semantics match make: touching invalidates.
         if target.sandbox:
             assert target.sandbox_root is None
             hasher = hashlib.blake2b()
             hasher.update(pickle.dumps(target))
+            # Mix each direct sandboxed dep's hash so non-path-field references
+            # to deps (e.g. GenerateFiles.args = ["--input={:Repo}"]) propagate
+            # dep changes into our hash. Path-field references already propagate
+            # via path expansion. Non-sandboxed deps are skipped (Change 7
+            # forbids referencing them via {Pkg:target}, so they carry no
+            # content to propagate).
+            for _, dep_target in self.direct_dependencies(
+                package=package, target=target
+            ):
+                if dep_target.sandbox_root:
+                    hasher.update(Path(dep_target.sandbox_root).name.encode())
+            for _, files in target.get_file_path_fields():
+                for src in files:
+                    st = os.stat(src)
+                    hasher.update(f"{src}:{st.st_mtime_ns}:{st.st_size}".encode())
             sandbox_hash = hasher.hexdigest()[:16]
             sandbox_parent = Path(config.sandbox_root).joinpath(
                 target.workspace_root, target.name
             )
             target.sandbox_root = sandbox_parent.joinpath(sandbox_hash).as_posix()
-            # Delete previous versions (if any exist)...
-            if sandbox_parent.is_dir():
-                for child in sandbox_parent.iterdir():
-                    assert len(child.name) == 16 and all(
-                        c in "0123456789abcdef" for c in child.name
-                    ), f"unexpected entry in sandbox directory: {child}"
-                    if child.name != sandbox_hash:
-
-                        def _remove_readonly(func, path, _):
-                            os.chmod(path, stat.S_IWRITE)
-                            func(path)
-
-                        if sys.version_info >= (3, 12):
-                            shutil.rmtree(child, onexc=_remove_readonly)
-                        else:
-                            shutil.rmtree(child, onerror=_remove_readonly)
             variables["__sandbox__"] = os.path.relpath(
                 target.sandbox_root, target.workspace_root
             )
+        # Built-in variables that resolve at run time, not at hash time. Set
+        # after hashing so the pickle never sees env-specific values like
+        # sys.executable -- the template strings ("{__python__}", etc.) are
+        # what gets hashed, while the resolved values are substituted into
+        # non-path fields below.
+        variables["__python__"] = sys.executable
         # Expand non-path fields (path fields already expanded above)
         for key, value in target.__dict__.items():
             if id(value) not in path_field_ids:
