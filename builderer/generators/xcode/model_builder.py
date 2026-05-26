@@ -1379,6 +1379,18 @@ def create_target(
                     settings["SWIFT_OBJC_INTERFACE_HEADER_NAME"] = BuildSetting(
                         value=effective_target.swift_header
                     )
+            elif isinstance(target_info.target, AppleApplication):
+                # Apple bundle wrapping a swift_binary: the .app's PRODUCT_NAME equals
+                # the wrapped binary's PRODUCT_NAME (it IS that binary inside the
+                # bundle), so the Swift module name would also collide. Rename the
+                # ".app" suffix to "_app_bundle" so the .app's .swiftmodule is
+                # clearly distinct from the wrapped binary's.
+                app_name = target_info.target.name
+                if app_name.endswith(".app"):
+                    module_name = app_name[: -len(".app")] + "_app_bundle"
+                else:
+                    module_name = app_name.replace(".", "_").replace("-", "_")
+                settings["PRODUCT_MODULE_NAME"] = BuildSetting(value=module_name)
 
         if isinstance(target_info.target, AppleApplication):
             _, dep_binary = target_info.target.resolve_binary_target(
