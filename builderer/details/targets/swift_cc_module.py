@@ -1,6 +1,11 @@
 from typing import Iterator, Tuple
 
-from builderer.details.targets.target import Target
+from builderer.details.targets.cc_library import CCLibrary
+from builderer.details.targets.target import (
+    Target,
+    PreBuildTarget,
+    RepositoryTarget,
+)
 
 
 class SwiftCcModule(Target):
@@ -23,3 +28,8 @@ class SwiftCcModule(Target):
     def get_dir_path_fields(self) -> Iterator[Tuple[str, list]]:
         return
         yield
+
+
+# The bridge directly depends on the cc_library its modulemap describes; the
+# modulemap itself may be sourced from a repository.
+SwiftCcModule.allowed_deps_types = (CCLibrary, RepositoryTarget, PreBuildTarget)

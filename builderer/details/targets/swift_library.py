@@ -1,6 +1,11 @@
 from typing import Iterator, Optional, Tuple
 
-from builderer.details.targets.target import BuildTarget
+from builderer.details.targets.swift_cc_module import SwiftCcModule
+from builderer.details.targets.target import (
+    BuildTarget,
+    PreBuildTarget,
+    RepositoryTarget,
+)
 
 
 class SwiftLibrary(BuildTarget):
@@ -26,3 +31,13 @@ class SwiftLibrary(BuildTarget):
     def get_dir_path_fields(self) -> Iterator[Tuple[str, list]]:
         return
         yield
+
+
+# Swift links other swift_libraries and imports C/C++ through a swift_cc_module
+# bridge (never a cc_library directly); inputs may come from a repository.
+SwiftLibrary.allowed_deps_types = (
+    SwiftLibrary,
+    SwiftCcModule,
+    RepositoryTarget,
+    PreBuildTarget,
+)

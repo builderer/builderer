@@ -2,7 +2,6 @@ import json
 import shutil
 import subprocess
 import sys
-import tempfile
 from argparse import ArgumentParser
 from typing import Optional
 
@@ -40,19 +39,17 @@ def _ios_bundle_identifier(
 # devicectl reports that itself. The devicectl JSON schema is fixed, so fields
 # are indexed directly — malformed output raises rather than being dropped.
 def _ios_devices() -> dict:
-    with tempfile.NamedTemporaryFile(suffix=".json") as tmp:
-        result = subprocess.run(
-            ["xcrun", "devicectl", "list", "devices", "--json-output", tmp.name],
-            capture_output=True,
-            text=True,
-        )
-        # A devicectl failure is a tooling error, not "zero devices" — the
-        # legitimate empty case is a successful run whose device list is empty.
-        assert (
-            result.returncode == 0
-        ), f"`xcrun devicectl list devices` failed: {result.stderr.strip()}"
-        with open(tmp.name) as f:
-            devices = json.load(f)["result"]["devices"]
+    result = subprocess.run(
+        ["xcrun", "devicectl", "list", "devices", "--json-output", "-"],
+        capture_output=True,
+        text=True,
+    )
+    # A devicectl failure is a tooling error, not "zero devices" — the
+    # legitimate empty case is a successful run whose device list is empty.
+    assert (
+        result.returncode == 0
+    ), f"`xcrun devicectl list devices` failed: {result.stderr.strip()}"
+    devices = json.loads(result.stdout)["result"]["devices"]
     return {
         d["deviceProperties"]["name"]: d["hardwareProperties"]["udid"] for d in devices
     }

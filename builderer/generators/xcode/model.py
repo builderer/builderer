@@ -39,20 +39,23 @@ class SourceTree(Enum):
     # ABSOLUTE = "ABSOLUTE"  # Not portable across machines
 
 
-# Destination subfolder specifications used in PBXCopyFilesBuildPhase
+# Destination subfolder specifications used in PBXCopyFilesBuildPhase.
+# These are Apple's actual on-disk pbxproj values (verified empirically against
+# xcodebuild: dstSubfolderSpec=7 lands files in Contents/Resources, =10 in
+# Frameworks, etc.). The previous values here were wrong (Resources was 3) but
+# the enum was never instantiated, so the bug was latent until metal_library's
+# copy-files phase needed it.
 class DstSubfolderSpec(Enum):
     ABSOLUTE_PATH = 0  # Absolute path
-    WRAPPER = 1  # App bundle
-    EXECUTABLES = 2  # Executables
-    RESOURCES = 3  # Resources
-    JAVA_RESOURCES = 4  # Java Resources
-    FRAMEWORKS = 5  # Frameworks
-    SHARED_FRAMEWORKS = 6  # Shared Frameworks
-    PLUGINS = 10  # Plug-ins
-    SCRIPTS = 11  # Scripts
-    JAVA_RESOURCES_ALT = 12  # Java Resources (alternate)
-    PRODUCTS_DIRECTORY = 13  # Products Directory
-    WRAPPER_ALT = 16  # Wrapper (app bundle, alternate)
+    WRAPPER = 1  # Wrapper (app bundle)
+    EXECUTABLES = 6  # Executables
+    RESOURCES = 7  # Resources
+    JAVA_RESOURCES = 15  # Java Resources
+    FRAMEWORKS = 10  # Frameworks
+    SHARED_FRAMEWORKS = 11  # Shared Frameworks
+    SHARED_SUPPORT = 12  # Shared Support
+    PLUGINS = 13  # Plug-ins
+    PRODUCTS_DIRECTORY = 16  # Products Directory
 
 
 # File types used in PBXFileReference
@@ -62,6 +65,7 @@ class FileType(Enum):
     C_HEADER = "sourcecode.c.h"
     CPP_HEADER = "sourcecode.cpp.h"
     SWIFT = "sourcecode.swift"
+    METAL = "sourcecode.metal"
     OBJC = "sourcecode.c.objc"
     OBJCPP = "sourcecode.cpp.objcpp"
     XIB = "file.xib"
@@ -72,6 +76,7 @@ class FileType(Enum):
     ASSET_CATALOG = "folder.assetcatalog"
     FRAMEWORK = "wrapper.framework"
     BUNDLE = "wrapper.bundle"
+    METAL_LIBRARY = "archive.metal-library"
     APP = "wrapper.application"
     DYLIB = "compiled.mach-o.dylib"
     TEXT = "text"
@@ -90,6 +95,7 @@ class FileType(Enum):
             "h": FileType.C_HEADER,
             "hpp": FileType.CPP_HEADER,
             "swift": FileType.SWIFT,
+            "metal": FileType.METAL,
             "m": FileType.OBJC,
             "mm": FileType.OBJCPP,
             "xib": FileType.XIB,
@@ -114,6 +120,7 @@ class ProductType(Enum):
     STATIC_LIBRARY = "com.apple.product-type.library.static"
     DYNAMIC_LIBRARY = "com.apple.product-type.library.dynamic"
     BUNDLE = "com.apple.product-type.bundle"
+    METAL_LIBRARY = "com.apple.product-type.metal-library"
     TOOL = "com.apple.product-type.tool"
     UNIT_TEST_BUNDLE = "com.apple.product-type.unit-test.bundle"
     APP_EXTENSION = "com.apple.product-type.app-extension"
@@ -238,11 +245,15 @@ class PBXCopyFilesBuildPhase(XcodeObject):
     files: List[Reference[PBXBuildFile]]
     dstPath: str
     dstSubfolderSpec: DstSubfolderSpec
+    target_name: str = ""  # owning target, for key uniqueness (not serialized)
     buildActionMask: int = 2147483647
     runOnlyForDeploymentPostprocessing: int = 0
 
     def key(self) -> str:
-        return f"{self.__class__.__name__}:{self.dstPath}:{self.dstSubfolderSpec.name}"
+        return (
+            f"{self.__class__.__name__}:{self.target_name}:"
+            f"{self.dstPath}:{self.dstSubfolderSpec.name}"
+        )
 
 
 @dataclass

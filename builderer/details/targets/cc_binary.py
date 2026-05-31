@@ -1,6 +1,11 @@
-from typing import Iterator, Tuple, Optional
+from typing import Iterator, Tuple
 
-from builderer.details.targets.target import BuildTarget
+from builderer.details.targets.cc_library import CCLibrary
+from builderer.details.targets.target import (
+    BuildTarget,
+    PreBuildTarget,
+    RepositoryTarget,
+)
 
 
 class CCBinary(BuildTarget):
@@ -30,3 +35,8 @@ class CCBinary(BuildTarget):
     def get_dir_path_fields(self) -> Iterator[Tuple[str, list]]:
         if self.private_includes:
             yield "private", self.private_includes
+
+
+# A cc_binary links cc_libraries and may source inputs from repositories or
+# generated-file (prebuild) targets.
+CCBinary.allowed_deps_types = (CCLibrary, RepositoryTarget, PreBuildTarget)

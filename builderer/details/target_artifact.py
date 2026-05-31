@@ -8,6 +8,7 @@ from builderer.details.package import Package
 from builderer.details.targets.apple_application import AppleApplication
 from builderer.details.targets.cc_binary import CCBinary
 from builderer.details.targets.cc_library import CCLibrary
+from builderer.details.targets.metal_library import MetalLibrary
 from builderer.details.targets.swift_binary import SwiftBinary
 from builderer.details.targets.swift_library import SwiftLibrary
 from builderer.details.targets.target import BuildTarget
@@ -45,6 +46,8 @@ def _default_artifact_filename(config: Config, target: BuildTarget) -> str:
         return f"{target.name}{extension}"
     if isinstance(target, AppleApplication):
         return _normalize_app_bundle_name(target.name)
+    if isinstance(target, MetalLibrary):
+        return f"{target.name}.metallib"
     raise TypeError(f"unsupported build target type '{type(target).__name__}'")
 
 
@@ -55,6 +58,8 @@ def _default_artifact_subpath(config, package_name: str, target: BuildTarget) ->
         kind = "binaries"
     elif isinstance(target, AppleApplication):
         kind = "applications"
+    elif isinstance(target, MetalLibrary):
+        kind = "metallibs"
     else:
         raise TypeError(f"unsupported build target type '{type(target).__name__}'")
     return Path(config.build_root).joinpath(

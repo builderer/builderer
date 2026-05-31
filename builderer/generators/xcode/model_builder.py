@@ -24,6 +24,7 @@ from builderer.details.targets.apple_application import (
 from builderer.details.targets.target import BuildTarget
 from builderer.details.targets.cc_binary import CCBinary
 from builderer.details.targets.cc_library import CCLibrary
+from builderer.details.targets.metal_library import MetalLibrary
 from builderer.details.targets.swift_binary import SwiftBinary
 from builderer.details.targets.swift_cc_module import SwiftCcModule
 from builderer.details.targets.swift_library import SwiftLibrary
@@ -32,6 +33,7 @@ from builderer.details.variable_expansion import resolve_conditionals, bake_conf
 from builderer.details.as_iterator import str_iter
 from builderer.generators.xcode.model import (
     BuildSetting,
+    DstSubfolderSpec,
     FileType,
     PBXBuildFile,
     PBXCopyFilesBuildPhase,
@@ -156,6 +158,8 @@ COMPILABLE_EXTENSIONS = frozenset(
         ".s",
         # Swift
         ".swift",
+        # Metal (Xcode's built-in rule compiles these into default.metallib)
+        ".metal",
     }
 )
 
@@ -593,6 +597,18 @@ class TargetInfo:
             resources = sorted(resource_set)
             product_type = ProductType.APPLICATION
             file_type = FileType.APP
+        elif isinstance(target, MetalLibrary):
+            # A metal_library is its own Xcode Metal Library target
+            # (com.apple.product-type.metal-library): its .metal files go in
+            # Compile Sources and Xcode emits a bare <PRODUCT_NAME>.metallib
+            # product. The consuming app embeds that file via Copy Bundle Resources.
+            metal_source_set: Set[str] = set()
+            metal_source_paths = resolve_conditionals(base_config, target.srcs)
+            metal_source_set.update(str(p) for p in metal_source_paths)
+            sources = sorted(metal_source_set)
+            headers = []
+            product_type = ProductType.METAL_LIBRARY
+            file_type = FileType.METAL_LIBRARY
         else:
             raise ValueError(f"Unsupported target type: {type(target)}")
 
@@ -662,6 +678,16 @@ class ProjectInfo:
                     workspace, target_info.package
                 )
                 deps.add(target_full_name(dep_pkg, dep_target))
+                # metal_library deps: each is its own metal-library target the
+                # app depends on (build order) and embeds its <name>.metallib
+                # product (Copy Files -> Resources, third pass).
+                for (
+                    ml_pkg,
+                    ml_target,
+                ) in target_info.target.resolve_metal_library_targets(
+                    workspace, target_info.package
+                ):
+                    deps.add(target_full_name(ml_pkg, ml_target))
             dependencies[full_name] = deps
 
         return ProjectInfo(
@@ -710,6 +736,10 @@ def get_target_include_paths(
     elif isinstance(target_info.target, (SwiftBinary, SwiftLibrary)):
         # Swift targets have no *_includes of their own; transitive cc deps
         # contribute below.
+        pass
+    elif isinstance(target_info.target, MetalLibrary):
+        # A metal_library compiles only .metal sources; it has no C include
+        # paths of its own and no cc deps to inherit.
         pass
     else:
         raise ValueError(f"Unsupported target type: {type(target_info.target)}")
@@ -955,6 +985,52 @@ def create_xcode_project(project_info: ProjectInfo) -> XcodeProject:
 
             # Add to target's dependencies (build order only - linking is via OTHER_LDFLAGS)
             target.dependencies.append(Reference(target_dependency.id))
+
+    # Third pass: embed each app's metal_library product(s) via a Copy Files
+    # (Resources) build phase. This must run after the first pass, since it
+    # references each metal target's product file ref (created per-target and
+    # recorded in product_ref_by_target). Each metal_library product is a bare
+    # <target.name>.metallib file; Xcode copies it into the app's Resources root.
+    # A dep named "default" lands as default.metallib and is loaded by
+    # makeDefaultLibrary(); others are loaded by makeLibrary(URL:).
+    # (Phase 0 on Xcode 26.5 verified this lands the metallibs at the resources
+    # root and both load APIs resolve them.)
+    for full_name, target_info in sorted(project_info.targets.items()):
+        app = target_info.target
+        if not isinstance(app, AppleApplication):
+            continue
+        if full_name not in native_target_by_name:
+            continue
+        metal_deps = app.resolve_metal_library_targets(
+            project_info.workspace, target_info.package
+        )
+        if not metal_deps:
+            continue
+        app_target = native_target_by_name[full_name]
+        copy_build_files = []
+        for ml_pkg, ml_target in metal_deps:
+            ml_full_name = target_full_name(ml_pkg, ml_target)
+            metal_product_ref = product_ref_by_target.get(ml_full_name)
+            if metal_product_ref is None:
+                continue
+            copy_build_files.append(
+                PBXBuildFile(
+                    fileRef=Reference(metal_product_ref.id),
+                    name=metal_product_ref.name,
+                    target_name=f"{full_name}:embed",
+                )
+            )
+        if not copy_build_files:
+            continue
+        copy_phase = PBXCopyFilesBuildPhase(
+            files=[Reference(bf.id) for bf in copy_build_files],
+            dstPath="",
+            dstSubfolderSpec=DstSubfolderSpec.RESOURCES,
+            target_name=full_name,
+        )
+        build_files.extend(copy_build_files)
+        build_phases.append(copy_phase)
+        app_target.buildPhases.append(Reference(copy_phase.id))
 
     # Sort all list fields on all objects for deterministic output
     for group in groups:
@@ -1421,6 +1497,8 @@ def create_target(
         product_type = FileType.ARCHIVE
     elif isinstance(target_info.target, AppleApplication):
         product_type = FileType.APP
+    elif isinstance(target_info.target, MetalLibrary):
+        product_type = FileType.METAL_LIBRARY
     else:
         product_type = FileType.EXECUTABLE
     product_path = f"{target_info.package.name}/{product_filename}"
@@ -1781,7 +1859,21 @@ def create_target(
         # any relation between target.name and output artifact naming.
         settings["PRODUCT_NAME"] = BuildSetting(value=Path(product_filename).stem)
         settings["FULL_PRODUCT_NAME"] = BuildSetting(value=product_filename)
-        if not isinstance(target_info.target, AppleApplication):
+        if isinstance(target_info.target, MetalLibrary):
+            # A com.apple.product-type.metal-library target: its product is a bare
+            # <PRODUCT_NAME>.metallib file (no wrapper). Phase 0 (Xcode 26.5) proved
+            # SDKROOT + PRODUCT_NAME suffice. Pass user metal_flags to the Metal
+            # compiler verbatim (no magic MTL_* defaults).
+            metal_flags = list(
+                str_iter(
+                    resolve_conditionals(
+                        project_info.base_config, target_info.target.metal_flags
+                    )
+                )
+            )
+            if metal_flags:
+                settings["MTL_COMPILER_FLAGS"] = BuildSetting(value=metal_flags)
+        elif not isinstance(target_info.target, AppleApplication):
             settings["EXECUTABLE_NAME"] = BuildSetting(value=product_filename)
 
         target_configs.append(
