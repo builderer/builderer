@@ -150,6 +150,9 @@ jobs:
           - generator: xcode
             config: macos-xcode
             manual_build: xcodebuild -project Out/build/macos-xcode.xcodeproj -alltargets -configuration debug -arch arm64
+          - generator: ios-xcode
+            config: ios
+            manual_build: xcodebuild -project Out/build/ios-xcode.xcodeproj -alltargets -configuration debug -arch arm64 -sdk iphonesimulator
     steps:
     - uses: webfactory/ssh-agent@v0.7.0
       with:
@@ -172,6 +175,10 @@ jobs:
         python -m venv .venv
         source .venv/bin/activate
         pip install ./builderer
+    # Dummy iOS signing team (unused: simulator builds don't sign)
+    - name: Configure signing team (iOS)
+      if: matrix.config == 'ios'
+      run: echo "DEVELOPMENT_TEAM=DUMMY" > examples/.builderer.env
     - name: Generate Build Files
       run: |
         source .venv/bin/activate
@@ -181,7 +188,9 @@ jobs:
       run: |
         cd examples
         ${{ matrix.manual_build }}
+    # Skipped for iOS: `builderer build` is device-SDK + signing only (no simulator)
     - name: Build Examples
+      if: matrix.config != 'ios'
       run: |
         source .venv/bin/activate
         cd examples
