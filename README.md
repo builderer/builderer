@@ -9,6 +9,7 @@
 - **[Build Files](docs/build-files.md)** - Define targets, dependencies, and external libraries
 - **[Configuration](docs/configuration.md)** - Configure platforms, toolchains, and conditionals
 - **[Commands](docs/commands.md)** - Generate, build, run, and manage projects
+- **[Examples](https://github.com/builderer/builderer-examples)** -- repository with example buildable projects
 
 ## What is Builderer?
 
@@ -16,11 +17,11 @@ Builderer generates native build files from Python-based build descriptions. It'
 
 ### Supported Platforms and Build Systems
 
-| Build System | Windows   | Linux     | macOS     | iOS  | WebAssembly |
-|--------------|-----------|-----------|-----------|------|-------------|
-| **Makefile** |           | Supported | Supported | TODO | Supported   |
-| **MSBuild**  | Supported |           |           |      |             |
-| **Xcode**    |           |           | Supported | TODO |             |
+| Build System | Windows  | Linux    | macOS    | iOS      | WebAssembly |
+|--------------|----------|----------|----------|----------|-------------|
+| **Makefile** |          | &#10003; | &#10003; |          | &#10003;    |
+| **MSBuild**  | &#10003; |          |          |          |             |
+| **Xcode**    |          |          | &#10003; | &#10003; |             |
 
 ## Why Builderer?
 

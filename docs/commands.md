@@ -62,6 +62,13 @@ builderer run --config=linux Game:shooter -- --fullscreen --level=5
 - **windows / linux / macos** — the built binary is executed directly.
 - **macos `.app` bundles** — launched via `open --args …`.
 - **emscripten** — the JavaScript entrypoint produced by `emcc` is executed under Node.js. The artifact's `.html` is rewritten to its sibling `.js` automatically; if the target's `output_path` already ends in `.js`, it is used as-is. `node` must be on `PATH`; activating emsdk (`source emsdk_env.sh` / `emsdk_env.bat`) is the easiest way to satisfy this.
+- **ios `.app` bundles** — installed and launched on a connected **physical device** via `devicectl`. The build is signed (requires `development_team`, see [`apple_application`](build-files.md#apple_application)), so the bundle must be code-signed and the device registered with your team. Select the device with `--device`:
+
+  ```bash
+  builderer run --config=ios Apps:myapp.app --device="My iPhone"
+  ```
+
+  `--device` is required for iOS and its choices are the paired devices reported by `xcrun devicectl list devices`. To run on the **simulator**, open the generated `.xcodeproj` in Xcode and Run — `builderer run` targets devices only.
 
 ## graph
 

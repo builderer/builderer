@@ -4,6 +4,8 @@
 # It extracts information from the workspace and converts it to the appropriate Xcode project model
 # structures defined in model.py.
 
+from __future__ import annotations
+
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple, Union
 import os
@@ -15,7 +17,10 @@ from builderer.details.target_artifact import (
     get_target_artifact_filename,
 )
 from builderer.details.package import Package
-from builderer.details.targets.apple_application import AppleApplication
+from builderer.details.targets.apple_application import (
+    AppleApplication,
+    validate_resolved_info_plist,
+)
 from builderer.details.targets.target import BuildTarget
 from builderer.details.targets.cc_binary import CCBinary
 from builderer.details.targets.cc_library import CCLibrary
@@ -51,6 +56,90 @@ from builderer.generators.xcode.model import (
 )
 
 SettingValue = Union[str, YesNo]
+
+
+# Apple platform/SDK traits live in these frozen dataclasses, keyed on
+# config.platform via APPLE_PLATFORMS below. The generator branches on TRAITS
+# (sdk.is_simulator, platform.multi_sdk, ...) rather than on SDK name strings, so
+# adding tvOS/watchOS/visionOS is a single new frozen ApplePlatform instance
+# (plus RULES flags) with no SDK names hardcoded anywhere in the logic.
+#
+# A build picks one SDK at build time via `xcodebuild -sdk`; for a multi-SDK
+# platform (a device SDK + a simulator SDK) products/intermediates are separated
+# per SDK via [sdk=...] conditional settings so device and simulator never
+# collide or invalidate each other. The device SDK's product lands at the user's
+# output_path (the deployable); the simulator's lands in intermediates.
+# Intrinsic facts about an Apple SDK. (Where a product is saved is generator
+# policy, not an SDK attribute, so it lives in the generator — not here.)
+#  - signed: products built against this SDK are code-signed. iOS device SDKs
+#    sign; simulator SDKs cannot (Xcode rejects even ad-hoc signing for them).
+#  - is_simulator: this is a simulator SDK (launched via simctl, not devicectl).
+@dataclass(frozen=True)
+class AppleSdk:
+    name: str
+    signed: bool = False
+    is_simulator: bool = False
+
+    @property
+    def dir_tag(self) -> str:
+        return self.name
+
+    # Xcode conditional-build-setting selector matching this SDK, e.g.
+    # OTHER_LDFLAGS[sdk=iphonesimulator*]. Operates on $(SDKROOT) at build time.
+    @property
+    def selector(self) -> str:
+        return f"sdk={self.name}*"
+
+
+@dataclass(frozen=True)
+class ApplePlatform:
+    # config.platform value (e.g. "ios").
+    name: str
+    # Every SDK this project builds for, device first. Exactly one is the device
+    # SDK (is_simulator=False); a multi-SDK platform also has a simulator SDK.
+    sdks: Tuple[AppleSdk, ...]
+    deploy_setting: str
+    plist_version_key: str
+    default_device_families: Optional[str] = None
+
+    # The device SDK, whose name is SDKROOT. Xcode overlays a simulator SDK at
+    # build time for a simulator destination.
+    @property
+    def device_sdk(self) -> AppleSdk:
+        return next(s for s in self.sdks if not s.is_simulator)
+
+    @property
+    def sdkroot(self) -> str:
+        return self.device_sdk.name
+
+    @property
+    def multi_sdk(self) -> bool:
+        return len(self.sdks) > 1
+
+
+MACOS = ApplePlatform(
+    name="macos",
+    sdks=(AppleSdk("macosx"),),
+    deploy_setting="MACOSX_DEPLOYMENT_TARGET",
+    plist_version_key="LSMinimumSystemVersion",
+)
+
+IOS = ApplePlatform(
+    name="ios",
+    sdks=(
+        AppleSdk("iphoneos", signed=True),
+        AppleSdk("iphonesimulator", is_simulator=True),
+    ),
+    deploy_setting="IPHONEOS_DEPLOYMENT_TARGET",
+    plist_version_key="MinimumOSVersion",
+    default_device_families="1,2",
+)
+
+# Future: TVOS, WATCHOS, VISIONOS as additional frozen ApplePlatform instances.
+APPLE_PLATFORMS: Dict[str, ApplePlatform] = {
+    "macos": MACOS,
+    "ios": IOS,
+}
 
 # Extensions that Xcode can compile (add to sources build phase)
 COMPILABLE_EXTENSIONS = frozenset(
@@ -445,7 +534,7 @@ class TargetInfo:
         workspace: Workspace,
         package: Package,
         target: BuildTarget,
-    ) -> "TargetInfo":
+    ) -> TargetInfo:
         sources: List[str] = []
         headers: List[str] = []
         resources: List[str] = []
@@ -533,7 +622,7 @@ class ProjectInfo:
         workspace: Workspace,
         base_config: Config,
         configs: List[Config],
-    ) -> "ProjectInfo":
+    ) -> ProjectInfo:
         targets = {}
         dependencies = {}
 
@@ -563,8 +652,9 @@ class ProjectInfo:
                 for pkg, dep_target in workspace.all_dependencies(
                     target_info.package, target_info.target
                 ):
-                    if isinstance(dep_target, (CCLibrary, SwiftLibrary)) and getattr(
-                        dep_target, "srcs", None
+                    if (
+                        isinstance(dep_target, (CCLibrary, SwiftLibrary))
+                        and dep_target.srcs
                     ):
                         deps.add(target_full_name(pkg, dep_target))
             elif isinstance(target_info.target, AppleApplication):
@@ -718,6 +808,12 @@ def create_xcode_project(project_info: ProjectInfo) -> XcodeProject:
     objroot_rel = os.path.join(build_root_dir, ".xcode-obj", project_stem)
     symroot_rel = os.path.join(build_root_dir, ".xcode-sym", project_stem)
 
+    # SDKROOT selects the base SDK; Xcode forms the compiler target from it plus
+    # ARCHS and the deployment target, so builderer never bakes a -target. For
+    # ios this is "iphoneos"; Xcode overlays the simulator SDK at build time for
+    # a simulator destination.
+    apple_platform = APPLE_PLATFORMS[project_info.base_config.platform]
+
     # Create project-level configuration list - one config per build config
     project_configs = []
     for build_cfg in str_iter(project_info.base_config.build_config):
@@ -726,6 +822,7 @@ def create_xcode_project(project_info: ProjectInfo) -> XcodeProject:
         # Relocate intermediates under Out/build (CONFIGURATION_BUILD_DIR set per-target)
         settings.update(
             {
+                "SDKROOT": BuildSetting(value=apple_platform.sdkroot),
                 "OBJROOT": BuildSetting(value=f"$(SRCROOT)/{objroot_rel}"),
                 "SYMROOT": BuildSetting(value=f"$(SRCROOT)/{symroot_rel}"),
                 "SHARED_PRECOMPS_DIR": BuildSetting(
@@ -881,6 +978,314 @@ def create_xcode_project(project_info: ProjectInfo) -> XcodeProject:
         targetDependencies=sorted(target_dependencies, key=lambda t: t.id),
         containerItemProxies=sorted(container_item_proxies, key=lambda c: c.id),
     )
+
+
+# Code-signing settings for one target, per SDK. Only the app bundle is signed;
+# its static-library deps and standalone tool products are not (signing them
+# wrongly demands a development team for a .a / bare binary). A simulator SDK
+# must NOT sign (Xcode rejects even ad-hoc signing for it); a device SDK signs
+# the bundle with automatic style, optionally using its development team.
+# Settings are keyed per-SDK so a multi-SDK platform (device + simulator) gets
+# the right behavior per destination. A single-SDK desktop platform (macOS)
+# keeps the existing plain no-signing behavior.
+def _signing_settings(
+    platform: ApplePlatform, target_info: TargetInfo
+) -> Dict[str, BuildSetting]:
+    # The app bundle is the only signed product (its static-library deps and
+    # standalone tools are not), and the only target type carrying a team.
+    app = target_info.target
+    settings: Dict[str, BuildSetting] = {}
+    for sdk in platform.sdks:
+        # A single-SDK platform emits plain (unconditioned) keys to preserve the
+        # existing macOS output; a multi-SDK platform keys per SDK so each
+        # destination signs correctly. Whether to sign is the SDK's `signed`
+        # trait AND whether the product type signs at all, never inferred.
+        cond = "" if not platform.multi_sdk else f"[{sdk.selector}]"
+        if sdk.signed and isinstance(app, AppleApplication):
+            # A device build of an app must be signed, which Apple requires a
+            # team for; an unset team here is a misconfiguration, not a no-op.
+            assert app.development_team is not None, (
+                f"AppleApplication '{app.name}' must set development_team to "
+                f"sign for {sdk.name}"
+            )
+            settings[f"CODE_SIGNING_ALLOWED{cond}"] = BuildSetting(value=YesNo.YES)
+            settings[f"CODE_SIGN_STYLE{cond}"] = BuildSetting(value="Automatic")
+            settings[f"DEVELOPMENT_TEAM{cond}"] = BuildSetting(
+                value=app.development_team
+            )
+        else:
+            settings[f"CODE_SIGNING_ALLOWED{cond}"] = BuildSetting(value=YesNo.NO)
+            settings[f"AD_HOC_CODE_SIGNING_ALLOWED{cond}"] = BuildSetting(
+                value=YesNo.NO
+            )
+    return settings
+
+
+# One build matrix entry. A single-SDK platform (macos) varies by architecture
+# (selector "arch=<arch>"); a multi-SDK platform (ios, single-arch) varies by SDK
+# (selector "sdk=<sdk>*"). Either way a variant knows its conditional-setting
+# selector and the directory tag for its intermediates, so all per-variant build
+# settings are emitted by one generic loop rather than per-platform branches.
+@dataclass(frozen=True)
+class BuildVariant:
+    selector: str  # e.g. "arch=arm64" or "sdk=iphonesimulator*"
+    dir_tag: str  # intermediates segment, e.g. "arm64" or "iphonesimulator"
+    config: Config  # baked config (single arch + build_config) for this variant
+    is_deployable: bool  # product lands at the user's output_path (vs intermediates)
+
+
+# The build variants for a target/build_config. A single-SDK platform (macos)
+# yields one variant per architecture. A multi-SDK platform (ios) yields one per
+# SDK. is_deployable is the GENERATOR's output policy (not an SDK attribute): a
+# simulator variant's product is throwaway (-> intermediates), so it does not
+# ship; every other variant's product ships to the user's output_path.
+def _build_variants(
+    platform: ApplePlatform, project_info: ProjectInfo, build_cfg: str
+) -> List[BuildVariant]:
+    archs = list(str_iter(project_info.base_config.architecture))
+    if not platform.multi_sdk:
+        return [
+            BuildVariant(
+                selector=f"arch={arch}",
+                dir_tag=arch,
+                config=bake_config(
+                    project_info.base_config, architecture=arch, build_config=build_cfg
+                ),
+                is_deployable=True,
+            )
+            for arch in archs
+        ]
+    # Multi-SDK platforms are single-arch (the generator asserts one arch).
+    arch = archs[0]
+    config = bake_config(
+        project_info.base_config, architecture=arch, build_config=build_cfg
+    )
+    return [
+        BuildVariant(
+            selector=sdk.selector,
+            dir_tag=sdk.dir_tag,
+            config=config,
+            is_deployable=not sdk.is_simulator,
+        )
+        for sdk in platform.sdks
+    ]
+
+
+# The directory a target's product lands in for a build variant. A deployable
+# variant (the device/desktop SDK) honors the user's declared output_path; a
+# non-deployable one (the simulator) is never redistributed, so it goes to a
+# per-variant intermediates directory. The product FILENAME is identical across
+# variants (the user's choice); only the directory differs.
+def _variant_product_dir(
+    variant: BuildVariant,
+    target_info: TargetInfo,
+    build_cfg: str,
+    symroot_rel: str,
+) -> str:
+    if variant.is_deployable:
+        return os.path.dirname(
+            get_target_output_path(target_info, variant.config, symroot_rel)
+        )
+    return os.path.join(
+        symroot_rel, f"{variant.dir_tag}-{build_cfg}", target_info.package.name
+    )
+
+
+# Build-output directories for one target/build_config, emitted uniformly per
+# variant. For a multi-SDK platform each SDK gets its own OBJROOT/SYMROOT so
+# device and simulator intermediates never collide; for macOS the single-SDK,
+# per-arch behavior is preserved (plain OBJROOT/SYMROOT plus per-arch
+# CONFIGURATION_BUILD_DIR).
+def _build_dir_settings(
+    platform: ApplePlatform,
+    target_info: TargetInfo,
+    project_info: ProjectInfo,
+    build_cfg: str,
+    objroot_rel: str,
+    symroot_rel: str,
+) -> Dict[str, BuildSetting]:
+    settings: Dict[str, BuildSetting] = {}
+    variants = _build_variants(platform, project_info, build_cfg)
+
+    if platform.multi_sdk:
+        # Separate intermediates per variant (SDK).
+        for variant in variants:
+            cond = f"[{variant.selector}]"
+            obj = os.path.join(objroot_rel, f"{variant.dir_tag}-{build_cfg}")
+            sym = os.path.join(symroot_rel, f"{variant.dir_tag}-{build_cfg}")
+            settings[f"OBJROOT{cond}"] = BuildSetting(value=f"$(SRCROOT)/{obj}")
+            settings[f"SYMROOT{cond}"] = BuildSetting(value=f"$(SRCROOT)/{sym}")
+    else:
+        # Single-SDK: shared intermediates (per-arch dirs differ only by product).
+        settings["OBJROOT"] = BuildSetting(value=f"$(SRCROOT)/{objroot_rel}")
+        settings["SYMROOT"] = BuildSetting(value=f"$(SRCROOT)/{symroot_rel}")
+
+    product_dirs = {
+        variant.selector: _variant_product_dir(
+            variant, target_info, build_cfg, symroot_rel
+        )
+        for variant in variants
+    }
+    for variant in variants:
+        settings[f"CONFIGURATION_BUILD_DIR[{variant.selector}]"] = BuildSetting(
+            value=f"$(SRCROOT)/{product_dirs[variant.selector]}"
+        )
+    # A base (unconditioned) value for steps that read it before resolving the
+    # variant (e.g. universal-binary tooling); first variant is representative.
+    settings["CONFIGURATION_BUILD_DIR"] = BuildSetting(
+        value=f"$(SRCROOT)/{product_dirs[variants[0].selector]}"
+    )
+    return settings
+
+
+# Dependency targets to link against, in correct link order (dependents before
+# dependencies), filtered to the given target types that actually produce a
+# library archive (i.e. have sources). Shared by the cc/apple/swift link blocks.
+def _ordered_link_deps(
+    target_info: TargetInfo,
+    project_info: ProjectInfo,
+    types: Tuple[type, ...],
+) -> List[TargetInfo]:
+    deps: List[TargetInfo] = []
+    for dep_pkg, dep_target in reversed(
+        list(
+            project_info.workspace.all_dependencies(
+                target_info.package, target_info.target
+            )
+        )
+    ):
+        # Only library targets carry sources to link; a header-only library
+        # (no srcs) produces no archive and is skipped.
+        if (
+            isinstance(dep_target, types)
+            and isinstance(dep_target, (CCLibrary, SwiftLibrary))
+            and dep_target.srcs
+        ):
+            dep_ti = project_info.targets.get(target_full_name(dep_pkg, dep_target))
+            if dep_ti:
+                deps.append(dep_ti)
+    return deps
+
+
+# Emit OTHER_LDFLAGS per build variant: each variant links against that variant's
+# dependency products, which live in the variant's product directory (see
+# _variant_product_dir). The dependency product FILENAME is identical across
+# variants; only its directory differs. One uniform loop covers macOS (per-arch)
+# and multi-SDK (per-SDK). link_flags are the target's raw (conditional) user
+# link flags, resolved per variant. Called once per target (not inside the
+# per-arch loop) since it enumerates all variants itself.
+def _emit_other_ldflags(
+    settings: Dict[str, BuildSetting],
+    platform: ApplePlatform,
+    project_info: ProjectInfo,
+    build_cfg: str,
+    link_flags,
+    dep_targets: List[TargetInfo],
+    symroot_rel: str,
+) -> None:
+    for variant in _build_variants(platform, project_info, build_cfg):
+        flags: List[str] = []
+        if link_flags:
+            flags.extend(resolve_conditionals(variant.config, link_flags))
+        for dep_ti in dep_targets:
+            dep_dir = _variant_product_dir(variant, dep_ti, build_cfg, symroot_rel)
+            filename = os.path.basename(
+                get_target_output_path(dep_ti, variant.config, symroot_rel)
+            )
+            flags.append(f"$(SRCROOT)/{os.path.join(dep_dir, filename)}")
+        if flags:
+            settings[f"OTHER_LDFLAGS[{variant.selector}]"] = BuildSetting(value=flags)
+
+
+def _infoplist_scalar(value) -> SettingValue:
+    if isinstance(value, bool):
+        return YesNo.YES if value else YesNo.NO
+    return str(value)
+
+
+# Flatten one info_plist key/value into INFOPLIST_KEY_* build settings (Xcode
+# generates the plist from these; GENERATE_INFOPLIST_FILE=YES). The prefix grows
+# with each nesting level joined by "_", matching Xcode's convention (e.g.
+# UILaunchScreen.UIColorName -> INFOPLIST_KEY_UILaunchScreen_UIColorName).
+#   - scalar/bool -> INFOPLIST_KEY_<prefix> = value
+#   - non-empty dict -> recurse into each sub-key
+#   - empty dict -> INFOPLIST_KEY_<prefix>_Generation = YES (the only way to
+#     express an empty dict through flat settings; Apple's documented escape
+#     hatch, e.g. UILaunchScreen={} -> INFOPLIST_KEY_UILaunchScreen_Generation)
+#   - list -> space-joined scalars (Xcode's list form for INFOPLIST_KEY_)
+def _emit_infoplist_key(settings: Dict[str, BuildSetting], prefix: str, value) -> None:
+    if isinstance(value, dict):
+        if not value:
+            settings[f"INFOPLIST_KEY_{prefix}_Generation"] = BuildSetting(
+                value=YesNo.YES
+            )
+            return
+        for sub_key in sorted(value):
+            _emit_infoplist_key(settings, f"{prefix}_{sub_key}", value[sub_key])
+    elif isinstance(value, list):
+        # Xcode's INFOPLIST_KEY_ array form is a space-joined list of strings
+        # (e.g. UISupportedInterfaceOrientations); elements are always strings.
+        settings[f"INFOPLIST_KEY_{prefix}"] = BuildSetting(
+            value=" ".join(str(v) for v in value)
+        )
+    else:
+        settings[f"INFOPLIST_KEY_{prefix}"] = BuildSetting(
+            value=_infoplist_scalar(value)
+        )
+
+
+# Emit the Info.plist + bundle build settings for an AppleApplication. Most keys
+# become INFOPLIST_KEY_* (Xcode generates the plist). A few keys are consumed
+# into their own build settings instead, because Xcode derives the plist key
+# from the setting (re-emitting would double it) or they name the product:
+#   - the platform's min-OS plist key -> *_DEPLOYMENT_TARGET (A6)
+#   - CFBundleExecutable -> EXECUTABLE_NAME, CFBundleIdentifier -> PRODUCT_BUNDLE_IDENTIFIER
+# device family comes from the bundle's device_families field (A7), not plist.
+def _emit_infoplist_settings(
+    settings: Dict[str, BuildSetting],
+    platform: ApplePlatform,
+    target: AppleApplication,
+    plist_dict: dict,
+    default_executable: str,
+) -> None:
+    validate_resolved_info_plist(target.name, plist_dict)
+    consumed = {
+        platform.plist_version_key,
+        "CFBundleExecutable",
+        "CFBundleIdentifier",
+    }
+
+    settings["GENERATE_INFOPLIST_FILE"] = BuildSetting(value=YesNo.YES)
+    for key in sorted(plist_dict):
+        if key not in consumed:
+            _emit_infoplist_key(settings, key, plist_dict[key])
+
+    if platform.plist_version_key in plist_dict:
+        settings[platform.deploy_setting] = BuildSetting(
+            value=str(plist_dict[platform.plist_version_key])
+        )
+
+    settings["EXECUTABLE_NAME"] = BuildSetting(
+        value=str(plist_dict.get("CFBundleExecutable", default_executable))
+    )
+    if "CFBundleIdentifier" in plist_dict:
+        settings["PRODUCT_BUNDLE_IDENTIFIER"] = BuildSetting(
+            value=str(plist_dict["CFBundleIdentifier"])
+        )
+
+    # Device family (A7): from the bundle's device_families field, or the
+    # platform default. Xcode writes UIDeviceFamily into the plist from this.
+    # A platform without a device-family concept (e.g. macOS) must not be given
+    # explicit device_families.
+    explicit_family = target.targeted_device_family()
+    if explicit_family and platform.default_device_families is None:
+        raise ValueError(
+            f"AppleApplication '{target.name}' sets device_families, but platform "
+            f"'{platform.name}' has no device families"
+        )
+    device_family = explicit_family or platform.default_device_families
+    if device_family:
+        settings["TARGETED_DEVICE_FAMILY"] = BuildSetting(value=device_family)
 
 
 def create_target(
@@ -1068,6 +1473,8 @@ def create_target(
     else:
         effective_target = None
 
+    apple_platform = APPLE_PLATFORMS[project_info.base_config.platform]
+
     for build_cfg in str_iter(project_info.base_config.build_config):
         # Start with empty settings; do not inject defaults
         settings: Dict[str, BuildSetting] = {}
@@ -1080,6 +1487,7 @@ def create_target(
         # Basic build settings derived from workspace config
         settings.update(
             {
+                "SDKROOT": BuildSetting(value=apple_platform.sdkroot),
                 "ARCHS": BuildSetting(
                     value=[
                         str(a) for a in str_iter(project_info.base_config.architecture)
@@ -1087,8 +1495,6 @@ def create_target(
                 ),
                 # Ensure Xcode build intermediates live under Out/build
                 "BUILD_DIR": BuildSetting(value=f"$(SRCROOT)/{symroot_rel}"),
-                "OBJROOT": BuildSetting(value=f"$(SRCROOT)/{objroot_rel}"),
-                "SYMROOT": BuildSetting(value=f"$(SRCROOT)/{symroot_rel}"),
                 "SHARED_PRECOMPS_DIR": BuildSetting(
                     value=f"$(OBJROOT)/SharedPrecompiledHeaders"
                 ),
@@ -1097,29 +1503,30 @@ def create_target(
                 # Xcode compatibility: disable legacy user paths headermap, enable separate headermaps
                 "ALWAYS_SEARCH_USER_PATHS": BuildSetting(value=YesNo.NO),
                 "ALWAYS_USE_SEPARATE_HEADERMAPS": BuildSetting(value=YesNo.YES),
-                # Avoid ad-hoc code signing flags leaking into tool invocations
-                "CODE_SIGNING_ALLOWED": BuildSetting(value=YesNo.NO),
-                "AD_HOC_CODE_SIGNING_ALLOWED": BuildSetting(value=YesNo.NO),
             }
         )
 
-        # Determine CONFIGURATION_BUILD_DIR for each architecture
-        arch_output_dirs: Dict[str, str] = {}
-        for arch in str_iter(project_info.base_config.architecture):
-            baked_cfg = bake_config(
-                project_info.base_config, architecture=arch, build_config=build_cfg
-            )
-            output_path = get_target_output_path(target_info, baked_cfg, symroot_rel)
-            output_dir = os.path.dirname(output_path)
-            arch_output_dirs[arch] = f"$(SRCROOT)/{output_dir}"
+        # Code signing. A non-simulator (device/desktop) SDK signs; simulator
+        # SDKs never do (Xcode skips signing for them regardless). A bundle may
+        # carry a development team for automatic device signing.
+        settings.update(_signing_settings(apple_platform, target_info))
 
-        # Set base value (used for universal binary steps) and per-arch values
-        first_dir = next(iter(arch_output_dirs.values()))
-        settings["CONFIGURATION_BUILD_DIR"] = BuildSetting(value=first_dir)
-        for arch, output_dir in arch_output_dirs.items():
-            settings[f"CONFIGURATION_BUILD_DIR[arch={arch}]"] = BuildSetting(
-                value=output_dir
+        # Build directories. A single-SDK platform (macos) keeps the per-arch
+        # layout. A multi-SDK platform (ios) builds one project for several SDKs,
+        # so intermediates and products are separated by SDK via [sdk=...]
+        # conditional settings (the device SDK product lands at the user's
+        # output_path; simulator products, never redistributed, go to
+        # intermediates) — switching destinations never collides or invalidates.
+        settings.update(
+            _build_dir_settings(
+                apple_platform,
+                target_info,
+                project_info,
+                build_cfg,
+                objroot_rel,
+                symroot_rel,
             )
+        )
 
         # For each architecture, create a conditional setting
         for arch in str_iter(project_info.base_config.architecture):
@@ -1237,69 +1644,41 @@ def create_target(
                         BuildSetting(value=ordered_defs)
                     )
 
-                # Add linker flags for executable targets
+                # Add linker flags for executable targets. _emit_other_ldflags
+                # enumerates all build variants itself (per-arch on macOS, per-SDK
+                # on iOS), so it is variant-complete; the single-arch invariant
+                # means this runs once.
                 if isinstance(target_info.target, CCBinary):
-                    binary_ldflags: List[str] = []
-                    binary_link_target = target_info.target
-
-                    # Add user-provided link flags
-                    if binary_link_target.link_flags:
-                        binary_ldflags.extend(
-                            resolve_conditionals(
-                                arch_config, binary_link_target.link_flags
-                            )
-                        )
-
-                    # Add explicit paths to all dependent libraries (avoids -l collisions)
-                    # Reversed for correct link order (dependents before dependencies)
-                    for dep_pkg, dep_target in reversed(
-                        list(
-                            project_info.workspace.all_dependencies(
-                                target_info.package, target_info.target
-                            )
-                        )
-                    ):
-                        if isinstance(dep_target, CCLibrary) and dep_target.srcs:
-                            dep_full_name = target_full_name(dep_pkg, dep_target)
-                            dep_target_info = project_info.targets.get(dep_full_name)
-                            if dep_target_info:
-                                dep_output = get_target_output_path(
-                                    dep_target_info, arch_config, symroot_rel
-                                )
-                                binary_ldflags.append(f"$(SRCROOT)/{dep_output}")
-
-                    if binary_ldflags:
-                        settings[f"OTHER_LDFLAGS[arch={arch}]"] = BuildSetting(
-                            value=binary_ldflags
-                        )
+                    # Explicit paths to dependent libraries (avoids -l collisions).
+                    # Reversed for correct link order (dependents before dependencies).
+                    dep_targets = _ordered_link_deps(
+                        target_info, project_info, (CCLibrary,)
+                    )
+                    _emit_other_ldflags(
+                        settings,
+                        apple_platform,
+                        project_info,
+                        build_cfg,
+                        target_info.target.link_flags,
+                        dep_targets,
+                        symroot_rel,
+                    )
                 elif isinstance(target_info.target, AppleApplication):
-                    app_ldflags: List[str] = []
                     _, app_binary = target_info.target.resolve_binary_target(
                         project_info.workspace, target_info.package
                     )
-                    if app_binary.link_flags:
-                        app_ldflags.extend(
-                            resolve_conditionals(arch_config, app_binary.link_flags)
-                        )
-                    for dep_pkg, dep_target in reversed(
-                        list(
-                            project_info.workspace.all_dependencies(
-                                target_info.package, target_info.target
-                            )
-                        )
-                    ):
-                        if isinstance(dep_target, CCLibrary) and dep_target.srcs:
-                            dep_full_name = target_full_name(dep_pkg, dep_target)
-                            dep_target_info = project_info.targets.get(dep_full_name)
-                            if dep_target_info:
-                                dep_output = get_target_output_path(
-                                    dep_target_info, arch_config, symroot_rel
-                                )
-                                app_ldflags.append(f"$(SRCROOT)/{dep_output}")
-                    if app_ldflags:
-                        settings[f"OTHER_LDFLAGS[arch={arch}]"] = BuildSetting(
-                            value=app_ldflags
-                        )
+                    dep_targets = _ordered_link_deps(
+                        target_info, project_info, (CCLibrary,)
+                    )
+                    _emit_other_ldflags(
+                        settings,
+                        apple_platform,
+                        project_info,
+                        build_cfg,
+                        app_binary.link_flags,
+                        dep_targets,
+                        symroot_rel,
+                    )
 
             elif isinstance(effective_target, (SwiftBinary, SwiftLibrary)):
                 swift_target = effective_target
@@ -1339,32 +1718,18 @@ def create_target(
 
                 # Link flags: user-provided + transitive cc/swift dep .a files
                 if isinstance(swift_target, SwiftBinary):
-                    swift_ldflags: List[str] = []
-                    if swift_target.link_flags:
-                        swift_ldflags.extend(
-                            resolve_conditionals(arch_config, swift_target.link_flags)
-                        )
-                    for dep_pkg, dep_target in reversed(
-                        list(
-                            project_info.workspace.all_dependencies(
-                                target_info.package, target_info.target
-                            )
-                        )
-                    ):
-                        if isinstance(
-                            dep_target, (CCLibrary, SwiftLibrary)
-                        ) and getattr(dep_target, "srcs", None):
-                            dep_full_name = target_full_name(dep_pkg, dep_target)
-                            dep_target_info = project_info.targets.get(dep_full_name)
-                            if dep_target_info:
-                                dep_output = get_target_output_path(
-                                    dep_target_info, arch_config, symroot_rel
-                                )
-                                swift_ldflags.append(f"$(SRCROOT)/{dep_output}")
-                    if swift_ldflags:
-                        settings[f"OTHER_LDFLAGS[arch={arch}]"] = BuildSetting(
-                            value=swift_ldflags
-                        )
+                    dep_targets = _ordered_link_deps(
+                        target_info, project_info, (CCLibrary, SwiftLibrary)
+                    )
+                    _emit_other_ldflags(
+                        settings,
+                        apple_platform,
+                        project_info,
+                        build_cfg,
+                        swift_target.link_flags,
+                        dep_targets,
+                        symroot_rel,
+                    )
 
         # Swift target-level settings (not per-arch). Applies to direct swift_library/
         # swift_binary targets and to AppleApplications wrapping a swift_binary.
@@ -1401,39 +1766,16 @@ def create_target(
                 architecture=list(str_iter(project_info.base_config.architecture))[0],
                 build_config=build_cfg,
             )
-            plist_dict = (
-                resolve_conditionals(plist_config, target_info.target.info_plist) or {}
+            plist_dict = resolve_conditionals(
+                plist_config, target_info.target.info_plist
             )
-            unsupported_keys = [
-                key
-                for key, value in plist_dict.items()
-                if not isinstance(value, (str, int, float, bool))
-            ]
-            if unsupported_keys:
-                raise ValueError(
-                    f"xcode generator only supports scalar info_plist values for "
-                    f"AppleApplication '{target_info.target.name}'. Unsupported keys: "
-                    f"{', '.join(sorted(unsupported_keys))}"
-                )
-            settings["GENERATE_INFOPLIST_FILE"] = BuildSetting(value=YesNo.YES)
-            for key, value in sorted(plist_dict.items()):
-                xcode_value: Union[YesNo, str]
-                if isinstance(value, bool):
-                    xcode_value = YesNo.YES if value else YesNo.NO
-                else:
-                    xcode_value = str(value)
-                settings[f"INFOPLIST_KEY_{key}"] = BuildSetting(value=xcode_value)
-            if "LSMinimumSystemVersion" in plist_dict:
-                settings["MACOSX_DEPLOYMENT_TARGET"] = BuildSetting(
-                    value=str(plist_dict["LSMinimumSystemVersion"])
-                )
-            settings["EXECUTABLE_NAME"] = BuildSetting(
-                value=str(plist_dict.get("CFBundleExecutable", dep_binary.name))
+            _emit_infoplist_settings(
+                settings,
+                apple_platform,
+                target_info.target,
+                plist_dict,
+                dep_binary.name,
             )
-            if "CFBundleIdentifier" in plist_dict:
-                settings["PRODUCT_BUNDLE_IDENTIFIER"] = BuildSetting(
-                    value=str(plist_dict["CFBundleIdentifier"])
-                )
 
         # Derive product naming from resolved artifact filename to avoid assuming
         # any relation between target.name and output artifact naming.

@@ -1,4 +1,5 @@
 from argparse import ArgumentParser
+import itertools
 import sys
 
 from builderer.details.tools.build import build_main
@@ -33,18 +34,21 @@ def main():
     parser = ArgumentParser()
     parser.add_argument("command", choices=COMMANDS.keys())
     parser.add_argument("--config", type=str, required=True)
-    parser.add_argument("targets", default=[], nargs="*")
-    args, unknown_args = parser.parse_known_args(builderer_args)
+    # The command parses its own options from command_args. Leftover args are
+    # `<targets...> [--options...]`: targets lead, the command's options follow.
+    args, rest = parser.parse_known_args(builderer_args)
+    targets = list(itertools.takewhile(lambda a: not a.startswith("-"), rest))
+    command_args = rest[len(targets) :]
     # build workspace for target(s)...
     workspace = Workspace()
     config = workspace.configs[args.config]
-    workspace.configure(config=config, filter_target_names=args.targets)
+    workspace.configure(config=config, filter_target_names=targets)
     # Pass workspace, config, and unknown args to the command
     exit_code = COMMANDS[args.command](
         workspace=workspace,
         config=config,
-        top_level_targets=args.targets,
-        command_args=unknown_args,
+        top_level_targets=targets,
+        command_args=command_args,
         binary_args=binary_args,
     )
     if exit_code is not None:

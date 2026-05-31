@@ -19,6 +19,7 @@ LIBRARY_NAMING_BY_PLATFORM = {
     "windows": ("", ".lib"),
     "linux": ("lib", ".a"),
     "macos": ("lib", ".a"),
+    "ios": ("lib", ".a"),
     "emscripten": ("lib", ".a"),
 }
 
@@ -26,6 +27,7 @@ BINARY_EXTENSION_BY_PLATFORM = {
     "windows": ".exe",
     "linux": "",
     "macos": "",
+    "ios": "",
     "emscripten": "",
 }
 
