@@ -135,7 +135,7 @@ class AppleApplication(BuildTarget):
     # treat all deps uniformly -- "default" is not special.
     def resolve_metal_library_targets(self, workspace, package):
         results = []
-        seen_names: dict[str,str] = {}
+        seen_names: dict[str, str] = {}
         for dep_package, dep_target in workspace.all_dependencies(package, self):
             if not isinstance(dep_target, MetalLibrary):
                 continue
