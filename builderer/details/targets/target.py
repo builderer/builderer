@@ -4,6 +4,15 @@ from builderer import Condition
 
 
 class Target:
+    # The target types permitted as DIRECT deps of this target. The workspace
+    # validates every dep edge against this when it builds the graph. Default is
+    # empty (fail-closed): a target accepts no deps until it explicitly opts in.
+    # Each concrete target assigns its own tuple after its class body (so the
+    # tuple may reference the class itself and peer target classes). Use base
+    # classes (e.g. RepositoryTarget) rather than enumerating every concrete
+    # type. Only DIRECT deps are checked; the transitive closure is unrestricted.
+    allowed_deps_types: tuple = ()
+
     def __init__(
         self,
         *,

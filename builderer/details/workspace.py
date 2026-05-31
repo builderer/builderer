@@ -299,6 +299,25 @@ class Workspace:
             (package, target): [self.find_target(dep, package) for dep in target.deps]
             for package, target in self.targets
         }
+        # Validate every direct dep edge against the consumer's declared
+        # allowed_deps_types. Each target type declares which target types it
+        # accepts as direct deps (see Target.allowed_deps_types); this is the
+        # single, uniform enforcement point. Only direct edges are checked — the
+        # transitive closure is unrestricted.
+        for (package, target), deps in self._graph.items():
+            for dep_pkg, dep_target in deps:
+                if not isinstance(dep_target, target.allowed_deps_types):
+                    allowed = (
+                        ", ".join(sorted(t.__name__ for t in target.allowed_deps_types))
+                        or "(none)"
+                    )
+                    raise ValueError(
+                        f"target '{target_full_name(package, target)}' "
+                        f"({type(target).__name__}) cannot depend on "
+                        f"'{target_full_name(dep_pkg, dep_target)}' "
+                        f"({type(dep_target).__name__}); "
+                        f"{type(target).__name__} allows deps of type: {allowed}"
+                    )
 
     def _breadth_first(self, start: list[tuple[Package, Target]]):
         visited = {k: False for k in self._graph.keys()}

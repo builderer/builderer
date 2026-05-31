@@ -4,9 +4,13 @@ import shutil
 from collections import defaultdict
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Iterator, Tuple, Optional
+from typing import Iterator, Tuple
 
-from builderer.details.targets.target import BuildTarget
+from builderer.details.targets.target import (
+    BuildTarget,
+    PreBuildTarget,
+    RepositoryTarget,
+)
 
 
 class CCLibrary(BuildTarget):
@@ -84,3 +88,8 @@ class CCLibrary(BuildTarget):
                 sandbox_root.joinpath(group, path).as_posix()
                 for path in get_relative_paths(paths, group_roots[group])
             ]
+
+
+# A cc_library links other cc_libraries and may source inputs from repositories
+# or generated-file (prebuild) targets.
+CCLibrary.allowed_deps_types = (CCLibrary, RepositoryTarget, PreBuildTarget)

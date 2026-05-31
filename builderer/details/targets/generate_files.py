@@ -2,7 +2,7 @@ from pathlib import Path
 from subprocess import check_call
 from typing import Iterator, Tuple
 
-from builderer.details.targets.target import PreBuildTarget
+from builderer.details.targets.target import PreBuildTarget, RepositoryTarget
 
 
 class GenerateFiles(PreBuildTarget):
@@ -22,3 +22,8 @@ class GenerateFiles(PreBuildTarget):
             print(f"generating {self.name}")
             sandbox_root.mkdir(parents=True, exist_ok=True)
             check_call(self.args, cwd=self.workspace_root)
+
+
+# A generate_files step may reference repositories or other generated-file
+# (prebuild) targets as inputs.
+GenerateFiles.allowed_deps_types = (RepositoryTarget, PreBuildTarget)

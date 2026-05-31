@@ -105,6 +105,9 @@ pkg.apple_application(
   macOS) sets the deployment target. Values may be scalars, lists, nested dicts,
   or [conditionals](configuration.md#conditionals-in-dicts-and-scalar-fields).
 - `resources` — copied into the bundle's resources.
+- `deps` (optional) — additional targets to embed into the bundle, currently
+  [`metal_library`](#metal_library) targets. Each listed library's
+  `<target.name>.metallib` is copied into the app's resources root.
 - `device_families` (iOS) — list of `"iphone"`/`"ipad"`; defaults to both. Not
   valid on macOS.
 - `development_team` (iOS) — Apple team id for signing **device** builds; the
@@ -116,6 +119,72 @@ pkg.apple_application(
 One iOS config produces a single Xcode project covering both device and
 simulator, selected at build time (Xcode destination or `xcodebuild -sdk`) — not
 a builderer conditional.
+
+### metal_library
+
+Compiles one or more `.metal` shader files into a Metal library file
+(`<target.name>.metallib`), built as a native Xcode
+`com.apple.product-type.metal-library` target. It is a discrete, standalone,
+shareable target — named like any other library. Declare it in an
+[`apple_application`](#apple_application)'s `deps` to embed its
+`<target.name>.metallib` at the app's resources root.
+
+How the app loads it follows from the target name:
+
+- a target named `default` → `default.metallib` at the app root, loadable with
+  `device.makeDefaultLibrary()`.
+- any other name (e.g. `Effects`) → `Effects.metallib` at the app root, loaded by
+  URL with `device.makeLibrary(URL:)`.
+
+```python
+# Named "default" -> default.metallib, loadable via device.makeDefaultLibrary().
+pkg.metal_library(
+    name = "default",
+    srcs = ["Shaders.metal"],   # one or more .metal files, linked into one library
+)
+# Any other name -> <name>.metallib, loaded via device.makeLibrary(URL:).
+pkg.metal_library(
+    name = "Effects",
+    srcs = ["Effects.metal"],
+)
+
+pkg.apple_application(
+    name = "Demo.app",
+    binary = ":demo",
+    deps = [":default", ":Effects"],  # both .metallib files embedded at the resources root
+    info_plist = { ... },
+)
+```
+
+Load them at runtime:
+
+```swift
+// default.metallib
+let defaultLib = device.makeDefaultLibrary()
+// Effects.metallib
+let url = Bundle.main.url(forResource: "Effects", withExtension: "metallib")!
+let effects = try device.makeLibrary(URL: url)
+```
+
+**Fields:**
+
+- `srcs` — `.metal` source files; all are compiled and linked into a single
+  metallib.
+- `metal_flags` (optional) — flags passed to the Metal compiler.
+- `output_path` (optional) — custom output location.
+
+The embedded metallib is named `<target.name>.metallib`; name a target `default`
+to get the app's default library.
+
+**Notes:**
+
+- Metal is Apple-only: supported by the `xcode` generator (macOS and iOS) and the
+  `make` generator (macOS).
+- An app may depend on several `metal_library` targets to ship multiple,
+  separately loadable shader libraries — each must have a distinct target name
+  (a duplicate `.metallib` filename is rejected at generate time).
+- Only `apple_application` targets may depend on a `metal_library`; a single
+  `metal_library` may be shared by multiple apps.
 
 ## Swift Targets
 

@@ -7,6 +7,7 @@ from builderer.details.targets.cc_library import CCLibrary
 from builderer.details.targets.generate_files import GenerateFiles
 from builderer.details.targets.git_repository import GitRepository
 from builderer.details.targets.https_repository import HttpsRepository
+from builderer.details.targets.metal_library import MetalLibrary
 from builderer.details.targets.swift_binary import SwiftBinary
 from builderer.details.targets.swift_cc_module import SwiftCcModule
 from builderer.details.targets.swift_library import SwiftLibrary
@@ -43,6 +44,9 @@ class BuiltinRules:
 
     def swift_cc_module(self, **kwargs):
         self.outer.add_target(target_type=SwiftCcModule, **kwargs)
+
+    def metal_library(self, **kwargs):
+        self.outer.add_target(target_type=MetalLibrary, **kwargs)
 
 
 class Package:

@@ -2,8 +2,13 @@ from typing import Iterator, List, Optional, Tuple, Union
 
 from builderer.conditional import ConditionalValue
 from builderer.details.targets.cc_binary import CCBinary
+from builderer.details.targets.metal_library import MetalLibrary
 from builderer.details.targets.swift_binary import SwiftBinary
-from builderer.details.targets.target import BuildTarget
+from builderer.details.targets.target import (
+    BuildTarget,
+    PreBuildTarget,
+    RepositoryTarget,
+)
 
 # iOS device families exposed to users by name, mapped to Apple's
 # TARGETED_DEVICE_FAMILY codes. (3=tv, 4=watch reserved for future platforms.)
@@ -55,9 +60,13 @@ class AppleApplication(BuildTarget):
         resources: list = [],
         development_team: Optional[str] = None,
         device_families: Optional[List[str]] = None,
+        deps: list = [],
         **kwargs,
     ):
-        super().__init__(deps=[binary], **kwargs)
+        # The wrapped binary is always a dependency; additional deps (e.g.
+        # metal_library targets, whose <target.name>.metallib the app embeds) are
+        # appended. The binary stays first so existing assumptions hold.
+        super().__init__(deps=[binary, *deps], **kwargs)
         self.binary = binary
         # An app bundle is invalid without an Info.plist (it must carry at least
         # CFBundleIdentifier/CFBundleExecutable), so info_plist is required. It
@@ -114,3 +123,42 @@ class AppleApplication(BuildTarget):
                 f"to reference a cc_binary or swift_binary target"
             )
         return dep_package, dep_target
+
+    # Resolve the MetalLibrary deps whose <target.name>.metallib this app embeds
+    # at its resources root. Walks the transitive dependency closure so a
+    # metal_library reached through the graph is found, mirroring how the
+    # generators enumerate deps. Raises if two share a target name (their metallib
+    # files would collide in the app, and a duplicate filename is not separately
+    # loadable at runtime) -- possible since the embedded filename carries no
+    # package path. A dep named "default" produces default.metallib, which the app
+    # may load via makeDefaultLibrary(); others are loaded by URL. The generators
+    # treat all deps uniformly -- "default" is not special.
+    def resolve_metal_library_targets(self, workspace, package):
+        results = []
+        seen_names: dict[str, str] = {}
+        for dep_package, dep_target in workspace.all_dependencies(package, self):
+            if not isinstance(dep_target, MetalLibrary):
+                continue
+            full_name = f"{dep_package.name}:{dep_target.name}"
+            existing = seen_names.get(dep_target.name)
+            if existing is not None:
+                raise ValueError(
+                    f"AppleApplication '{self.name}' embeds two metal_library "
+                    f"targets that both produce '{dep_target.name}.metallib' "
+                    f"('{existing}' and '{full_name}'); "
+                    f"give each a distinct target name"
+                )
+            seen_names[dep_target.name] = full_name
+            results.append((dep_package, dep_target))
+        return results
+
+
+# An app wraps one cc/swift binary and embeds metal_library metallibs; inputs may
+# come from a repository or a generated-file (prebuild) target.
+AppleApplication.allowed_deps_types = (
+    CCBinary,
+    SwiftBinary,
+    MetalLibrary,
+    RepositoryTarget,
+    PreBuildTarget,
+)

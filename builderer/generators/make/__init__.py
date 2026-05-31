@@ -4,6 +4,7 @@ from pathlib import Path
 from builderer import Config
 from builderer.details.as_iterator import str_iter
 from builderer.details.targets.apple_application import AppleApplication
+from builderer.details.targets.metal_library import MetalLibrary
 from builderer.details.targets.target import BuildTarget
 from builderer.details.workspace import Workspace
 from builderer.generators.make.root_makefile import RootMakefile, TOOLCHAIN_TOOLS
@@ -38,11 +39,12 @@ class MakeGenerator:
             apple_targets = [
                 target
                 for _, target in self.workspace.targets
-                if isinstance(target, AppleApplication)
+                if isinstance(target, (AppleApplication, MetalLibrary))
             ]
             if apple_targets:
                 raise ValueError(
-                    "AppleApplication targets are currently only supported on macos with make"
+                    "AppleApplication and MetalLibrary targets are currently only "
+                    "supported on Apple platforms with make"
                 )
 
     def __call__(self):

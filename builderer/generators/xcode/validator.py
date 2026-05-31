@@ -9,6 +9,7 @@ from builderer.generators.xcode.model import (
     ProductType,
     YesNo,
     ProxyType,
+    DstSubfolderSpec,
     PBXReferenceProxy,
     PBXFileReference,
     PBXNativeTarget,
@@ -61,6 +62,7 @@ def validate_references(project: XcodeProject) -> List[str]:
                 ProductType,
                 YesNo,
                 ProxyType,
+                DstSubfolderSpec,
                 type(None),
             ),
         ):

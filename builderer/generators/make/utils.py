@@ -7,6 +7,7 @@ from builderer.details.target_artifact import (
 from builderer.details.targets.apple_application import AppleApplication
 from builderer.details.targets.cc_binary import CCBinary
 from builderer.details.targets.cc_library import CCLibrary
+from builderer.details.targets.metal_library import MetalLibrary
 from builderer.details.targets.swift_binary import SwiftBinary
 from builderer.details.targets.swift_library import SwiftLibrary
 
@@ -53,6 +54,24 @@ def apple_application_output_path(config, package, target):
     assert isinstance(target, AppleApplication)
     subpath = get_target_artifact_subpath(config, package.name, target).as_posix()
     return f"$(WORKSPACE_ROOT)/{subpath}"
+
+
+def metal_library_output_path(config, package, target):
+    assert isinstance(target, MetalLibrary)
+    subpath = get_target_artifact_subpath(config, package.name, target).as_posix()
+    return f"$(WORKSPACE_ROOT)/{subpath}"
+
+
+# The in-bundle directory an app's resources (incl. embedded metal_library
+# .bundles) are copied into, per platform. macOS apps nest resources under
+# Contents/Resources; flat-bundle platforms (iOS et al.) place them at the
+# bundle root. Returns "" for the bundle root. NOTE: make currently only builds
+# Apple apps for macOS (PLATFORM_ARCH_FLAGS has no ios entry), so the flat-bundle
+# branch is presently unreachable via make and exists for when make grows iOS.
+def apple_bundle_resource_dir(platform: str) -> str:
+    if platform == "macos":
+        return "Contents/Resources"
+    return ""
 
 
 def cc_binary_output_path_workspace(config, workspace, package, target):
