@@ -3,7 +3,10 @@ import os
 from pathlib import Path
 from typing import TextIO
 
-from builderer.details.targets.apple_application import AppleApplication
+from builderer.details.targets.apple_application import (
+    AppleApplication,
+    validate_resolved_info_plist,
+)
 from builderer.details.targets.cc_binary import CCBinary
 from builderer.details.targets.cc_library import CCLibrary
 from builderer.details.targets.swift_binary import SwiftBinary
@@ -647,9 +650,10 @@ class TargetMk:
         binary_path = Path(
             os.path.relpath(binary_output, self.workspace.root)
         ).as_posix()
-        info_plist = (
-            resolve_conditionals(config=self.config, value=self.target.info_plist) or {}
+        info_plist = resolve_conditionals(
+            config=self.config, value=self.target.info_plist
         )
+        validate_resolved_info_plist(self.target.name, info_plist)
         executable_name = str(info_plist.get("CFBundleExecutable", binary_target.name))
         plist_xml_lines = _plist_dict_to_xml_text(info_plist).splitlines()
         plist_write_lines = [

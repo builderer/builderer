@@ -27,7 +27,7 @@ CTX.add_buildtool(
 # Define a configuration
 CTX.add_config(
     name = "linux",
-    platform = "linux",                   # windows, linux, macos, emscripten
+    platform = "linux",                   # windows, linux, macos, ios, emscripten
     architecture = ["x86-64", "arm64"],   # Can be list or single value
     buildtool = "make",
     toolchain = "gcc",                    # gcc, clang, msvc, emscripten
@@ -36,6 +36,17 @@ CTX.add_config(
     sandbox_root = "build/.sandbox",      # For git_repository and sandboxed targets
 )
 ```
+
+### iOS
+
+An `ios` config (`buildtool = "xcode"`) produces a **single** Xcode project that
+covers both physical devices and the simulator. Choose between them at build time
+via the Xcode destination dropdown or `xcodebuild -sdk` — there is no separate
+simulator config and no regeneration when switching. Device and simulator
+products and intermediates are kept in separate directories so switching never
+invalidates the other's build. See [`apple_application`](build-files.md#apple_application)
+for signing (`development_team`) and device family, and
+[`run`](commands.md#run) for on-device launch.
 
 ### Visual Studio Version Selection
 
@@ -79,6 +90,35 @@ CTX.add_config(
     tls_lib = "openssl",     # Custom field
 )
 ```
+
+## .builderer.env
+
+Optional, gitignored file at the workspace root holding **local, uncommitted
+values** that build files reference as `{__env__:NAME}`. It is the place for
+machine- or developer-specific values that must not be committed — most commonly
+an Apple signing team.
+
+```ini
+# .builderer.env  (add to .gitignore)
+DEVELOPMENT_TEAM=ABCDE12345
+```
+
+Flat `KEY=VALUE` lines; `#` comments and blank lines are ignored. It is plain
+text, **not** executed Python.
+
+Reference a value anywhere a string is accepted, including inside paths:
+
+```python
+development_team = "{__env__:DEVELOPMENT_TEAM}"
+srcs = ["generated/{__env__:VARIANT}/api.cpp"]
+```
+
+`{__env__:NAME}` resolves through the same expansion as `{Package:Target}` and
+`{__python__}`. The file is the **only** source — the process environment is not
+consulted. A referenced name that is not defined fails immediately with a clear
+error naming it. Targets excluded from a build (e.g. an iOS-only app on a Windows
+build) never resolve their references, so unset values only matter for targets
+that are actually built.
 
 ## RULES.builderer
 
@@ -240,6 +280,28 @@ pkg.cc_library(
             Case(Condition(platform=["linux","macos"]), "-lpthread"),
         ),
     ],
+)
+```
+
+### Conditionals in dicts and scalar fields
+
+`Optional`/`Switch` work in any field, not just lists:
+
+- **Dict values** — a key whose value resolves to nothing is dropped; one that
+  resolves to a value is kept. Dict **keys** must be plain strings.
+- **Scalar fields** — a field may be set to a single `Optional`/`Switch`; an
+  `Optional` that doesn't match leaves the field unset.
+
+```python
+pkg.apple_application(
+    name = "myapp.app",
+    # Scalar field set to a conditional (unset when not iOS):
+    development_team = Optional(Condition(platform="ios"), "{__env__:TEAM}"),
+    info_plist = {
+        "CFBundleName": "MyApp",                                      # always
+        "LSMinimumSystemVersion": Optional(Condition(platform="macos"), "13.0"),
+        "MinimumOSVersion":       Optional(Condition(platform="ios"),   "16.0"),
+    },
 )
 ```
 

@@ -55,6 +55,37 @@ def load_recursive_contexts(
     return contexts
 
 
+# Parse an optional .builderer.env dotenv into a {NAME: value} dict.
+def load_env_file(path: Path) -> Dict[str, str]:
+    env: Dict[str, str] = {}
+    try:
+        text = path.read_text()
+    except FileNotFoundError:
+        return env
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if "=" not in line:
+            raise ValueError(f"{path}: expected KEY=VALUE, got: {line}")
+        key, value = line.split("=", 1)
+        env[key.strip()] = value.strip()
+    return env
+
+
+# Resolves {__env__:NAME} against the values loaded from .builderer.env.
+class EnvFormatHelper:
+    def __init__(self, env):
+        self.env = env
+
+    def __format__(self, spec: str):
+        if spec not in self.env:
+            raise ValueError(
+                f"{{__env__:{spec}}} is not set; define {spec} in .builderer.env"
+            )
+        return self.env[spec]
+
+
 class PackageFormatHelper:
     def __init__(self, root, pkg):
         self.root = root
@@ -75,6 +106,10 @@ class PackageFormatHelper:
 class Workspace:
     def __init__(self, workspace_root: Path = Path(".")):
         self.root = Path(workspace_root).resolve()
+        # Local, uncommitted values referenced as {__env__:NAME} in build files,
+        # loaded only from the optional .builderer.env (NOT the process
+        # environment, which would leak ambient state into every build).
+        self.env = load_env_file(self.root / ".builderer.env")
         # load workspace config
         config_context = ConfigContext(self.root)
         load_user_module(config_context)
@@ -173,12 +208,14 @@ class Workspace:
                 package=package, target=target
             )
         }
-        variables: Dict[str, Union[str, PackageFormatHelper]] = {
+        variables: Dict[str, Union[str, PackageFormatHelper, EnvFormatHelper]] = {
             dep_name: PackageFormatHelper(
                 target.workspace_root, self.packages[dep_name]
             )
             for dep_name in dep_packages
         }
+        # Local/uncommitted values, referenced anywhere as {__env__:NAME}.
+        variables["__env__"] = EnvFormatHelper(self.env)
         # Expand path fields first (they never reference __sandbox__)
         path_fields = list(target.get_all_path_fields())
         path_field_ids = {id(attr) for _, attr in path_fields}

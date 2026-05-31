@@ -155,6 +155,11 @@ def build_with_xcode(
     # Add architecture if specified
     if build_arch:
         xcode_args.extend(["-arch", build_arch])
+    # iOS device builds use automatic signing; let xcodebuild create/update the
+    # provisioning profile (and register the device) from the team. macOS here
+    # is unsigned, so this is iOS-only.
+    if config.platform == "ios":
+        xcode_args.append("-allowProvisioningUpdates")
     # Run xcodebuild
     result = subprocess.run(xcode_args)
     if result.returncode != 0:

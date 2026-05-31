@@ -13,7 +13,7 @@ from builderer.generators.xcode.validator import (
 
 # Platform validation constants
 SUPPORTED_TOOLCHAINS = ["clang"]
-SUPPORTED_PLATFORMS = ["macos"]
+SUPPORTED_PLATFORMS = ["macos", "ios"]
 SUPPORTED_ARCHITECTURES = ["arm64", "x86_64"]
 
 

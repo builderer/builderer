@@ -72,36 +72,50 @@ for external tooling, set `output_path` explicitly.
 
 ### apple_application
 
-Defines a macOS `.app` bundle from a `cc_binary` target:
+Defines a macOS or iOS `.app` bundle from a `cc_binary` or `swift_binary` target.
+On macOS, both the Makefile and Xcode generators build it. On iOS, only the
+**Xcode** generator is supported (device signing and provisioning do not map onto
+plain Makefiles).
 
 ```python
 pkg.apple_application(
-    name = "myapp_bundle",
-    conditional = Condition(platform="macos"),
+    name = "myapp.app",
+    condition = Condition(platform=["macos", "ios"]),
     binary = ":myapp",
     info_plist = {
         "CFBundleIdentifier": "com.example.myapp",
         "CFBundleVersion": "1",
         "CFBundleShortVersionString": "1.0.0",
+        # Platform-specific keys via per-key Optional (A8b):
+        "LSMinimumSystemVersion": Optional(Condition(platform="macos"), "13.0"),
+        "MinimumOSVersion":       Optional(Condition(platform="ios"),   "16.0"),
+        "UILaunchScreen":         Optional(Condition(platform="ios"),   {}),
     },
-    resources = [
-        "Assets/AppIcon.icns",
-        "Assets/Base.lproj/MainMenu.nib",
-    ],
+    device_families = [Optional(Condition(platform="ios"), "iphone", "ipad")],
+    development_team = Optional(Condition(platform="ios"), "{__env__:DEVELOPMENT_TEAM}"),
+    resources = ["Assets/AppIcon.icns"],
 )
 ```
 
-`binary` is required and must reference a `cc_binary`.  
-`resources` are copied into `Contents/Resources` of the app bundle.
+**Fields:**
 
-`info_plist` is optional and accepts a dictionary with plist-compatible values.
-Builderer applies sensible defaults for common keys if omitted.
+- `binary` (required) — references a `cc_binary` or `swift_binary`.
+- `info_plist` (required) — a dictionary of `Info.plist` keys. The
+  deployment-target key (`MinimumOSVersion` on iOS, `LSMinimumSystemVersion` on
+  macOS) sets the deployment target. Values may be scalars, lists, nested dicts,
+  or [conditionals](configuration.md#conditionals-in-dicts-and-scalar-fields).
+- `resources` — copied into the bundle's resources.
+- `device_families` (iOS) — list of `"iphone"`/`"ipad"`; defaults to both. Not
+  valid on macOS.
+- `development_team` (iOS) — Apple team id for signing **device** builds; the
+  simulator needs none. Required to generate an iOS app. Keep it uncommitted via
+  `"{__env__:DEVELOPMENT_TEAM}"` (see [`.builderer.env`](configuration.md#buildererenv)).
+- `output_path` (optional) — the deployable (device) bundle location. If omitted,
+  Builderer uses an internal, non-API-stable location.
 
-`output_path` is optional. If omitted, Builderer chooses an internal default artifact
-location that is intentionally **not** API-stable. If you need a stable/predictable
-bundle location, set `output_path` explicitly.
-
-`binary` may reference either a `cc_binary` or a `swift_binary`.
+One iOS config produces a single Xcode project covering both device and
+simulator, selected at build time (Xcode destination or `xcodebuild -sdk`) — not
+a builderer conditional.
 
 ## Swift Targets
 
@@ -290,6 +304,14 @@ Sandboxing also enforces that `hdrs` and `srcs` properly enumerate all required 
 - **Local target** (same package): `:target_name`
 - **External target**: `PackageName:target_name`
 - **Nested package**: `Parent/Child:target_name`
+
+String fields also expand these template variables:
+
+- `{Package:Target}` — path to a sandboxed dependency's files.
+- `{__python__}` — the Python interpreter running builderer (`sys.executable`).
+- `{__env__:NAME}` — a local value from [`.builderer.env`](configuration.md#buildererenv)
+  (e.g. `"{__env__:DEVELOPMENT_TEAM}"`). Works anywhere a string is accepted,
+  including embedded in paths.
 
 Example:
 
