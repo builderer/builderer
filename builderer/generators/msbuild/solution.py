@@ -1,8 +1,7 @@
 import os
 
-from io import TextIOWrapper
 from pathlib import Path
-from typing import Dict
+from typing import Dict, TextIO
 
 from builderer import Config
 from builderer.details.targets.target import BuildTarget
@@ -35,7 +34,7 @@ class MsBuildSolution:
         with open(self.solution_path, "w") as sln:
             self._write_solution(sln)
 
-    def _write_solution(self, file: TextIOWrapper):
+    def _write_solution(self, file: TextIO):
         # header
         file.writelines(
             [

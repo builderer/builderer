@@ -27,7 +27,7 @@ jobs:
     - name: Install Tools
       run: pip install -r requirements-dev.txt
     - name: MyPy
-      run: mypy builderer --check-untyped-defs
+      run: mypy builderer tests --check-untyped-defs
     - name: Formatting
       run: black --check .
 

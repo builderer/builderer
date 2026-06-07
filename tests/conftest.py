@@ -7,6 +7,7 @@ string.
 """
 
 from pathlib import Path
+from typing import Union
 
 from builderer import Config
 from builderer.details.package import Package
@@ -17,24 +18,34 @@ from builderer.details.targets.target import Target
 from builderer.details.workspace import Workspace
 
 
-def make_config(**overrides) -> Config:
+def make_config(
+    *,
+    buildtool: str = "vs2022",
+    toolchain: str = "msvc",
+    platform: str = "windows",
+    sandbox_root: str = ".sandbox",
+    build_root: str = "Out/build/windows",
+    build_config: Union[str, list[str]] = ["debug"],
+    architecture: Union[str, list[str]] = ["x64"],
+    **overrides,
+) -> Config:
     """A complete Config with windows-ish defaults; override per test.
 
     Note that ``build_config`` and ``architecture`` default to single-element
     lists, mirroring how real configs are declared (they get baked down to
-    scalars during generation).
+    scalars during generation). Extra keyword arguments (e.g. custom config
+    fields like ``profiler=``) flow through ``**overrides`` into ``Config``.
     """
-    params = dict(
-        buildtool="vs2022",
-        toolchain="msvc",
-        platform="windows",
-        sandbox_root=".sandbox",
-        build_root="Out/build/windows",
-        build_config=["debug"],
-        architecture=["x64"],
+    return Config(
+        buildtool=buildtool,
+        toolchain=toolchain,
+        platform=platform,
+        sandbox_root=sandbox_root,
+        build_root=build_root,
+        build_config=build_config,
+        architecture=architecture,
+        **overrides,
     )
-    params.update(overrides)
-    return Config(**params)
 
 
 def make_cc_library(name: str, *, workspace_root: str = "pkg", **kwargs) -> CCLibrary:

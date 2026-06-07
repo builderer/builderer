@@ -56,7 +56,7 @@ class AppleApplication(BuildTarget):
         self,
         *,
         binary: str,
-        info_plist: dict,
+        info_plist: Union[dict, ConditionalValue],
         resources: list = [],
         development_team: Optional[str] = None,
         device_families: Optional[List[str]] = None,

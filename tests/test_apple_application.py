@@ -1,3 +1,5 @@
+from typing import Any
+
 import pytest
 
 from builderer.details.targets.apple_application import (
@@ -23,9 +25,12 @@ def test_validate_accepts_a_valid_nested_plist():
 
 
 def test_validate_rejects_non_dict_after_resolution():
-    # validation runs post-resolution; anything that isn't a dict is rejected
+    # validation runs post-resolution; anything that isn't a dict is rejected.
+    # resolve_conditionals() produces dynamically-typed data, so the value
+    # reaching the guard is genuinely Any -- model that here.
+    resolved: Any = ["not", "a", "dict"]
     with pytest.raises(ValueError, match="resolve to a dict"):
-        validate_resolved_info_plist("T", ["not", "a", "dict"])
+        validate_resolved_info_plist("T", resolved)
 
 
 def test_validate_rejects_non_string_keys():
@@ -48,15 +53,20 @@ def test_constructor_defensively_copies_info_plist():
 
 
 def test_constructor_requires_info_plist():
-    # an app bundle is invalid without an Info.plist, so it is a required argument
+    # an app bundle is invalid without an Info.plist, so it is a required
+    # argument. Omitting it is only reachable from dynamically-typed code, so we
+    # model that caller via an Any-typed reference to the constructor.
+    constructor: Any = AppleApplication
     with pytest.raises(TypeError):
-        AppleApplication(name="A", binary=":bin", workspace_root="pkg")
+        constructor(name="A", binary=":bin", workspace_root="pkg")
 
 
 def test_constructor_rejects_non_dict_non_conditional_info_plist():
+    # neither a dict nor a ConditionalValue; only reachable dynamically
+    bad_info_plist: Any = ["x"]
     with pytest.raises(ValueError, match="a dict or a conditional"):
         AppleApplication(
-            name="A", binary=":bin", workspace_root="pkg", info_plist=["x"]
+            name="A", binary=":bin", workspace_root="pkg", info_plist=bad_info_plist
         )
 
 
