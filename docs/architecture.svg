@@ -1,0 +1,140 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1120 824" width="1120" height="824" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" role="img" aria-label="Builderer architecture diagram">
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="6" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L6,3 L0,6 Z" fill="#8b949e"/>
+    </marker>
+  </defs>
+
+  <!-- card -->
+  <rect x="10" y="10" width="1100" height="804" rx="14" fill="#ffffff" stroke="#d0d7de" stroke-width="1.5"/>
+
+  <!-- title -->
+  <text x="560" y="48" text-anchor="middle" font-size="26" font-weight="700" fill="#1f2328">🏗️  Builderer Architecture</text>
+  <text x="560" y="72" text-anchor="middle" font-size="13.5" fill="#57606a">Python build descriptions in &#8594; standalone native build files out</text>
+
+  <!-- ===================== INPUTS (user-authored) ===================== -->
+  <text x="50" y="104" font-size="13" font-weight="700" fill="#4a7fd6">&#9312;  BUILD DESCRIPTIONS &#183; declarative Python</text>
+
+  <!-- dashed grouping = the files you write -->
+  <rect x="40" y="112" width="1020" height="104" rx="12" fill="#f4f8ff" stroke="#7aa0d8" stroke-width="1.5" stroke-dasharray="6 5"/>
+  <rect x="852" y="101" width="190" height="22" rx="11" fill="#eaf2fe" stroke="#4a7fd6" stroke-width="1.2"/>
+  <text x="947" y="116" text-anchor="middle" font-size="11.5" font-weight="600" fill="#2f5fa8">&#9998;  user-authored files</text>
+
+  <!-- input boxes (centers 169 / 423 / 677 / 931) -->
+  <g>
+    <rect x="50"  y="126" width="238" height="62" rx="8" fill="#eaf2fe" stroke="#4a7fd6" stroke-width="1.5"/>
+    <text x="169" y="153" text-anchor="middle" font-size="15" font-weight="600" fill="#1f2328">CONFIG.builderer</text>
+    <text x="169" y="173" text-anchor="middle" font-size="12" fill="#57606a">buildtools + configs</text>
+
+    <rect x="304" y="126" width="238" height="62" rx="8" fill="#eaf2fe" stroke="#4a7fd6" stroke-width="1.5"/>
+    <text x="423" y="153" text-anchor="middle" font-size="15" font-weight="600" fill="#1f2328">RULES.builderer</text>
+    <text x="423" y="173" text-anchor="middle" font-size="12" fill="#57606a">custom rules</text>
+
+    <rect x="558" y="126" width="238" height="62" rx="8" fill="#eaf2fe" stroke="#4a7fd6" stroke-width="1.5"/>
+    <text x="677" y="153" text-anchor="middle" font-size="15" font-weight="600" fill="#1f2328">BUILD.builderer</text>
+    <text x="677" y="173" text-anchor="middle" font-size="12" fill="#57606a">packages + targets</text>
+
+    <rect x="812" y="126" width="238" height="62" rx="8" fill="#eaf2fe" stroke="#4a7fd6" stroke-width="1.5"/>
+    <text x="931" y="153" text-anchor="middle" font-size="15" font-weight="600" fill="#1f2328">.builderer.env</text>
+    <text x="931" y="173" text-anchor="middle" font-size="12" fill="#57606a">local vars (optional)</text>
+  </g>
+
+  <!-- collector: 4 boxes -> rail -> single feed into CLI -->
+  <g stroke="#8b949e" stroke-width="2" fill="none">
+    <line x1="169" y1="188" x2="169" y2="206"/>
+    <line x1="423" y1="188" x2="423" y2="206"/>
+    <line x1="677" y1="188" x2="677" y2="206"/>
+    <line x1="931" y1="188" x2="931" y2="206"/>
+    <line x1="169" y1="206" x2="931" y2="206"/>
+    <line x1="550" y1="206" x2="550" y2="240" marker-end="url(#arrow)"/>
+  </g>
+
+  <!-- ===================== CLI ===================== -->
+  <text x="290" y="236" font-size="13" font-weight="700" fill="#e08e0b">&#9313;  COMMAND LINE</text>
+  <rect x="290" y="244" width="520" height="74" rx="8" fill="#fff3e0" stroke="#e08e0b" stroke-width="1.5"/>
+  <text x="550" y="277" text-anchor="middle" font-size="15.5" font-weight="600" fill="#1f2328" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">builderer &lt;command&gt; --config &lt;name&gt; [target&#8230;]</text>
+  <text x="550" y="302" text-anchor="middle" font-size="12.5" fill="#57606a">generate &#183; build &#183; run &#183; graph &#183; validate &#183; sources &#183; licenses</text>
+
+  <line x1="550" y1="318" x2="550" y2="352" stroke="#8b949e" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- ===================== WORKSPACE ===================== -->
+  <text x="50" y="348" font-size="13" font-weight="700" fill="#2f9e44">&#9314;  WORKSPACE ENGINE &#183; builderer/details</text>
+  <rect x="40" y="356" width="1020" height="226" rx="10" fill="#f1f8f1" stroke="#2f9e44" stroke-width="1.5"/>
+
+  <!-- stage boxes (centers 210 / 550 / 890) -->
+  <g>
+    <rect x="58" y="380" width="304" height="116" rx="8" fill="#ffffff" stroke="#bcd9bc" stroke-width="1.5"/>
+    <text x="210" y="410" text-anchor="middle" font-size="15" font-weight="600" fill="#1f2328">Load build files</text>
+    <text x="210" y="434" text-anchor="middle" font-size="12" fill="#57606a">walk the workspace tree,</text>
+    <text x="210" y="452" text-anchor="middle" font-size="12" fill="#57606a">exec CONFIG / RULES / BUILD</text>
+
+    <rect x="398" y="380" width="304" height="116" rx="8" fill="#ffffff" stroke="#bcd9bc" stroke-width="1.5"/>
+    <text x="550" y="410" text-anchor="middle" font-size="15" font-weight="600" fill="#1f2328">Build the model</text>
+    <text x="550" y="434" text-anchor="middle" font-size="12" fill="#57606a">packages &#8594; targets,</text>
+    <text x="550" y="452" text-anchor="middle" font-size="12" fill="#57606a">assemble dependency graph</text>
+
+    <rect x="738" y="380" width="304" height="116" rx="8" fill="#ffffff" stroke="#bcd9bc" stroke-width="1.5"/>
+    <text x="890" y="406" text-anchor="middle" font-size="15" font-weight="600" fill="#1f2328">Configure(config)</text>
+    <text x="758" y="428" font-size="11.5" fill="#57606a">&#8226; resolve conditionals + variables</text>
+    <text x="758" y="446" font-size="11.5" fill="#57606a">&#8226; validate dep-type edges</text>
+    <text x="758" y="464" font-size="11.5" fill="#57606a">&#8226; topological sort</text>
+    <text x="758" y="482" font-size="11.5" fill="#57606a">&#8226; pre-build sandboxed targets</text>
+  </g>
+
+  <line x1="364" y1="438" x2="396" y2="438" stroke="#8b949e" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="704" y1="438" x2="736" y2="438" stroke="#8b949e" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- target types strip -->
+  <rect x="58" y="510" width="984" height="54" rx="8" fill="#ffffff" stroke="#cfe3cf" stroke-width="1.5"/>
+  <text x="550" y="532" text-anchor="middle" font-size="12" font-weight="600" fill="#1f2328">Builtin rules</text>
+  <text x="550" y="552" text-anchor="middle" font-size="11.5" fill="#57606a">cc_library &#183; cc_binary &#183; swift_library &#183; swift_binary &#183; swift_cc_module &#183; apple_application &#183; metal_library &#183; generate_files &#183; git_repository &#183; https_repository</text>
+
+  <!-- ===================== GENERATORS ===================== -->
+  <text x="50" y="598" font-size="13" font-weight="700" fill="#8b5cf6">&#9315;  GENERATORS &#183; pluggable buildtools (config selects one)</text>
+
+  <!-- distributor: workspace model -> rail -> generators (one runs per config) -->
+  <g stroke="#8b949e" stroke-width="2" fill="none">
+    <line x1="550" y1="582" x2="550" y2="608"/>
+    <line x1="210" y1="608" x2="890" y2="608"/>
+    <line x1="210" y1="608" x2="210" y2="624" marker-end="url(#arrow)"/>
+    <line x1="550" y1="608" x2="550" y2="624" marker-end="url(#arrow)"/>
+    <line x1="890" y1="608" x2="890" y2="624" marker-end="url(#arrow)"/>
+  </g>
+
+  <g>
+    <rect x="58"  y="626" width="304" height="72" rx="8" fill="#f5edfd" stroke="#8b5cf6" stroke-width="1.5"/>
+    <text x="210" y="658" text-anchor="middle" font-size="15" font-weight="600" fill="#1f2328">Make</text>
+    <text x="210" y="680" text-anchor="middle" font-size="12" fill="#57606a">Makefiles</text>
+
+    <rect x="398" y="626" width="304" height="72" rx="8" fill="#f5edfd" stroke="#8b5cf6" stroke-width="1.5"/>
+    <text x="550" y="658" text-anchor="middle" font-size="15" font-weight="600" fill="#1f2328">MSBuild</text>
+    <text x="550" y="680" text-anchor="middle" font-size="12" fill="#57606a">.sln / .vcxproj</text>
+
+    <rect x="738" y="626" width="304" height="72" rx="8" fill="#f5edfd" stroke="#8b5cf6" stroke-width="1.5"/>
+    <text x="890" y="658" text-anchor="middle" font-size="15" font-weight="600" fill="#1f2328">Xcode</text>
+    <text x="890" y="680" text-anchor="middle" font-size="12" fill="#57606a">.xcodeproj</text>
+  </g>
+
+  <!-- each generator emits its own distinct output (1:1, no merge) -->
+  <g stroke="#8b949e" stroke-width="2" fill="none">
+    <line x1="210" y1="698" x2="210" y2="728" marker-end="url(#arrow)"/>
+    <line x1="550" y1="698" x2="550" y2="728" marker-end="url(#arrow)"/>
+    <line x1="890" y1="698" x2="890" y2="728" marker-end="url(#arrow)"/>
+  </g>
+
+  <!-- ===================== OUTPUTS (one per generator) ===================== -->
+  <g>
+    <rect x="58"  y="730" width="304" height="62" rx="8" fill="#fdeaf0" stroke="#d6336c" stroke-width="1.5"/>
+    <text x="210" y="755" text-anchor="middle" font-size="11" fill="#9a3658">builds on</text>
+    <text x="210" y="776" text-anchor="middle" font-size="13.5" font-weight="600" fill="#1f2328">Linux &#183; macOS &#183; WebAssembly</text>
+
+    <rect x="398" y="730" width="304" height="62" rx="8" fill="#fdeaf0" stroke="#d6336c" stroke-width="1.5"/>
+    <text x="550" y="755" text-anchor="middle" font-size="11" fill="#9a3658">builds on</text>
+    <text x="550" y="776" text-anchor="middle" font-size="13.5" font-weight="600" fill="#1f2328">Windows</text>
+
+    <rect x="738" y="730" width="304" height="62" rx="8" fill="#fdeaf0" stroke="#d6336c" stroke-width="1.5"/>
+    <text x="890" y="755" text-anchor="middle" font-size="11" fill="#9a3658">builds on</text>
+    <text x="890" y="776" text-anchor="middle" font-size="13.5" font-weight="600" fill="#1f2328">macOS &#183; iOS</text>
+  </g>
+
+</svg>

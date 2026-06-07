@@ -10,7 +10,17 @@ Every build file creates a package:
 pkg = CTX.add_package("MyLibrary")
 ```
 
-Package names should match the directory path: `"MyProject/SubModule"`
+The package name **must** equal the package directory's path relative to the workspace root, or Builderer raises an error. A top-level `MyLibrary/` directory uses `"MyLibrary"`; a nested package uses the full slash-separated path, e.g. `"MyProject/SubModule"`.
+
+## Common target parameters
+
+Every target accepts:
+
+- `name` (required) — unique within its package.
+- `deps` — targets this one depends on (see [Dependency References](#dependency-references)).
+- `condition` — a [`Condition`](configuration.md#condition) that gates the whole target; when it doesn't match the active config, the target is excluded from generation entirely.
+
+Build targets (libraries, binaries, apps) additionally accept `output_path` to override Builderer's output location. If omitted, Builderer chooses an internal default that is intentionally **not** API-stable; set `output_path` explicitly when external tooling needs a predictable path.
 
 ## C/C++ Targets
 
@@ -64,11 +74,7 @@ pkg.cc_binary(
 )
 ```
 
-Supports all the same parameters as `cc_library` except `hdrs` and `public_*` fields.
-
-`output_path` is optional. If omitted, Builderer chooses an internal default artifact
-location that is intentionally **not** API-stable. If you need a stable/predictable path
-for external tooling, set `output_path` explicitly.
+`cc_binary` accepts `srcs`, `c_flags`, `cxx_flags`, `private_includes`, `private_defines`, `deps`, and `output_path`, plus `link_flags` (linker flags — not available on `cc_library`). It has no `hdrs` or `public_*` fields.
 
 ### apple_application
 
@@ -173,9 +179,6 @@ let effects = try device.makeLibrary(URL: url)
 - `metal_flags` (optional) — flags passed to the Metal compiler.
 - `output_path` (optional) — custom output location.
 
-The embedded metallib is named `<target.name>.metallib`; name a target `default`
-to get the app's default library.
-
 **Notes:**
 
 - Metal is Apple-only: supported by the `xcode` generator (macOS and iOS) and the
@@ -261,7 +264,7 @@ pkg.swift_cc_module(
 )
 ```
 
-- `module_maps` — list of hand-authored `.modulemap` files. Each file declares
+- `module_maps` — list of hand-authored `.modulemap` files (at least one required). Each file declares
   one or more clang modules whose names become Swift `import` names.
 - `deps` — the `cc_library` targets whose public headers the modulemap(s)
   reference.
@@ -286,10 +289,10 @@ polluting `cc_library`.
 
 ### Interop matrix
 
-| Direction | Bridge needed? | User authors | Builderer arranges |
-|---|---|---|---|
-| swift → swift | No | nothing extra | `-I` for `.swiftmodule`, link `.a` |
-| swift → C/C++ | **`swift_cc_module`** | `.modulemap` | `-Xcc -fmodule-map-file=…`, `-Xcc -I…`, link cc `.a` |
+| Direction     | Bridge needed?                                 | User authors                  | Builderer arranges                                                         |
+|---------------|------------------------------------------------|-------------------------------|----------------------------------------------------------------------------|
+| swift → swift | No                                             | nothing extra                 | `-I` for `.swiftmodule`, link `.a`                                         |
+| swift → C/C++ | **`swift_cc_module`**                          | `.modulemap`                  | `-Xcc -fmodule-map-file=…`, `-Xcc -I…`, link cc `.a`                       |
 | C/C++ → swift | No — set `swift_header` on the `swift_library` | `@_cdecl`/`public` Swift APIs | `-emit-objc-header-path`, `-I` to consumer, swap linker driver to `swiftc` |
 
 ## External Dependencies
@@ -377,6 +380,7 @@ Sandboxing also enforces that `hdrs` and `srcs` properly enumerate all required 
 String fields also expand these template variables:
 
 - `{Package:Target}` — path to a sandboxed dependency's files.
+- `{__sandbox__}` — path to the target's own sandbox directory (sandboxed targets only); handy in non-path fields such as `generate_files.args`.
 - `{__python__}` — the Python interpreter running builderer (`sys.executable`).
 - `{__env__:NAME}` — a local value from [`.builderer.env`](configuration.md#buildererenv)
   (e.g. `"{__env__:DEVELOPMENT_TEAM}"`). Works anywhere a string is accepted,
@@ -396,6 +400,19 @@ pkg.cc_binary(
     ],
 )
 ```
+
+### Allowed dependency types
+
+Builderer validates every **direct** dependency edge against the consumer's type (the transitive closure is unrestricted) and raises on a disallowed edge:
+
+| Target                                       | May directly depend on                                                                               |
+|----------------------------------------------|------------------------------------------------------------------------------------------------------|
+| `cc_library`, `cc_binary`, `swift_cc_module` | `cc_library`, `git_repository`, `https_repository`, `generate_files`                                 |
+| `swift_library`, `swift_binary`              | `swift_library`, `swift_cc_module`, `git_repository`, `https_repository`, `generate_files`           |
+| `apple_application`                          | `cc_binary`, `swift_binary`, `metal_library`, `git_repository`, `https_repository`, `generate_files` |
+| `metal_library`, `generate_files`            | `git_repository`, `https_repository`, `generate_files`                                               |
+
+Notably, Swift targets cannot depend on a `cc_library` directly — bridge it through a [`swift_cc_module`](#swift_cc_module).
 
 ## Common Patterns
 

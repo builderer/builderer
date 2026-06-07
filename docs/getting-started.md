@@ -51,6 +51,7 @@ CTX.add_config(
     toolchain = "gcc",                   # Compiler toolchain
     build_config = ["debug", "release"], # Build configurations to generate
     build_root = "build/linux",          # Where to generate build files
+    sandbox_root = "build/.sandbox",     # Where sandboxed/external targets are staged
 )
 ```
 
@@ -117,7 +118,7 @@ MyProject/
 ├── Tools/
 │   └── BUILD.builderer  # Package "Tools" with tool targets
 └── External/
-    └── BUILD.builderer  # Package "External" for dependencies
+    └── BUILD.builderer  # Package "External" for third-party deps (git_repository / https_repository)
 ```
 
 ## Key Concepts

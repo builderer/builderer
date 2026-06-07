@@ -11,7 +11,7 @@ All commands accept:
 [targets...]     # Optional: specific targets to operate on
 ```
 
-If no targets are specified, all targets in the workspace are processed.
+If no targets are specified, all targets in the workspace are processed. The exception is `run`, which requires exactly one target.
 
 ## generate
 
@@ -37,10 +37,10 @@ builderer build --config=windows --build_config=release --build_arch=x64
 ```
 
 **Optional flags**:
-- `--build_config=<config>` — Build a specific configuration (e.g., debug, release)
-- `--build_arch=<arch>` — Build a specific architecture (e.g., x86-64, arm64)
+- `--build_config=<config>` — Build a specific configuration; valid values are the `build_config` entries in the selected config (e.g. debug, release)
+- `--build_arch=<arch>` — Build a specific architecture; valid values are the `architecture` entries in the selected config (e.g. `x86-64`, `arm64`, or `x64`)
 
-This is a convenience that combines `generate` + invoking the native build tool with parallel builds enabled.
+This is a convenience that combines `generate` + invoking the native build tool (Make, MSBuild, or Xcode, depending on the config's `buildtool`) with parallel builds enabled.
 
 ## run
 
@@ -52,6 +52,8 @@ builderer run --config=linux Tools:myapp -- --app-arg
 ```
 
 **Arguments after `--`** are passed to the binary.
+
+**Optional flags**: `run` accepts the same `--build_config` / `--build_arch` flags as [`build`](#build) to select which variant to build and launch.
 
 **Example**:
 ```bash
@@ -98,15 +100,25 @@ Outputs a hierarchical breakdown showing:
 
 Useful for understanding codebase size and composition.
 
+## validate
+
+Resolve the workspace for a config and print every target with its direct dependencies. Useful as a sanity check that all targets and their `deps` resolve for the selected configuration.
+
+```bash
+builderer validate --config=linux
+```
+
+Output is one `Package:Target` per target, each followed by its direct dependencies (indented). Loading the workspace also runs Builderer's graph validation (dependency resolution and [allowed-dependency-type](build-files.md#allowed-dependency-types) checks), so `validate` fails loudly on a broken or mistyped dependency.
+
 ## licenses
 
-**Experimental**: Searches for and display licenses from repository dependencies.
+**Experimental**: Searches for and displays licenses from repository dependencies.
 
 ```bash
 builderer licenses --config=linux
 ```
 
-Scans `git_repository` targets and attempts to extract license information.
+Scans repository targets (`git_repository` and `https_repository`) and attempts to extract license information.
 
 ## Target Specification
 

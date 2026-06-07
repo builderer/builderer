@@ -27,15 +27,36 @@ CTX.add_buildtool(
 # Define a configuration
 CTX.add_config(
     name = "linux",
-    platform = "linux",                   # windows, linux, macos, ios, emscripten
-    architecture = ["x86-64", "arm64"],   # Can be list or single value
+    platform = "linux",                   # valid platforms depend on buildtool (see matrix below)
+    architecture = ["x86-64"],            # list or single; tokens are platform-specific (see matrix)
     buildtool = "make",
-    toolchain = "gcc",                    # gcc, clang, msvc, emscripten
+    toolchain = "gcc",                    # valid toolchains depend on buildtool (see matrix below)
     build_config = ["debug", "release"],  # Can be list or single value
     build_root = "build/linux",
     sandbox_root = "build/.sandbox",      # For git_repository and sandboxed targets
 )
 ```
+
+All seven fields shown above (`platform`, `architecture`, `buildtool`, `toolchain`, `build_config`, `build_root`, `sandbox_root`) are required; omitting any of them raises an error.
+
+### Supported platforms, toolchains & architectures
+
+The valid `platform`, `toolchain`, and `architecture` values depend on the `buildtool` you choose. Each generator validates the config and raises if a value is unsupported.
+
+| buildtool | toolchains                   | platforms                      |
+|-----------|------------------------------|--------------------------------|
+| `make`    | `gcc`, `clang`, `emscripten` | `linux`, `macos`, `emscripten` |
+| `xcode`   | `clang`                      | `macos`, `ios`                 |
+| `msbuild` | `msvc`                       | `windows`                      |
+
+Architecture tokens are platform-specific (mind the differing spelling):
+
+- `linux` — `x86-64`, `i386`, `i686`, and the `armv8-a` … `armv9.4-a` family
+- `macos` / `ios` — `x86_64`, `arm64`
+- `emscripten` — `wasm32`
+- `windows` — `x64`, `Win32`, `ARM64`
+
+> **Note:** Linux spells x86 as `x86-64` (hyphen) while macOS/Xcode use `x86_64` (underscore); `arm64` is a macOS/iOS token (on Linux use the `armv8-a`/`armv9-a` family). The `xcode` buildtool additionally requires `build_root` to end in `.xcodeproj`.
 
 ### iOS
 
@@ -83,8 +104,7 @@ Add arbitrary fields for use in conditionals:
 ```python
 CTX.add_config(
     name = "linux",
-    platform = "linux",
-    # ... standard fields ...
+    # ... plus all required fields from the example above ...
     allocator = "mimalloc",  # Custom field
     profiler = "tracy",      # Custom field
     tls_lib = "openssl",     # Custom field
@@ -189,7 +209,7 @@ Builderer provides conditional expressions that evaluate based on config fields.
 Builderer's conditional system is designed for **deferred evaluation**. Conditionals (`Optional`, `Switch`, `Case`) are evaluated during build file generation, not when parsing `BUILD.builderer` files.
 - Build files are analyzed once
 - Multiple configurations can be generated from a single analysis
-- A config with `architecture = ["x86-64", "arm64"]` generates projects for both architectures
+- A config that lists multiple architectures or build configs produces all of them in one pass: `make` emits a build variant per (architecture, build_config), while `xcode`/`msbuild` carry every architecture and configuration inside a single project/solution
 
 You can still use **Python if-statements** for immediate decisions based on function parameters or logic that doesn't depend on config variations:
 
@@ -282,6 +302,8 @@ pkg.cc_library(
     ],
 )
 ```
+
+A `Switch` raises at generation time if none of its `Case` conditions match the active config. Add a `Case(Condition(), ...)` as a catch-all default to handle every config.
 
 ### Conditionals in dicts and scalar fields
 

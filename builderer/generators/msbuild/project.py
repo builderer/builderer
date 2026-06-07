@@ -129,7 +129,7 @@ CFLAG_MAPPING = {
     "/GL": ("WholeProgramOptimization", "true"),
     # Runtime Library
     "/MD": ("RuntimeLibrary", "MultiThreadedDLL"),
-    "/MD": ("RuntimeLibrary", "MultiThreadedDebugDLL"),
+    "/MDd": ("RuntimeLibrary", "MultiThreadedDebugDLL"),
     "/MT": ("RuntimeLibrary", "MultiThreaded"),
     "/MTd": ("RuntimeLibrary", "MultiThreadedDebug"),
     # Security Development Lifecycle checks
