@@ -2,6 +2,7 @@ import os
 
 from pathlib import Path
 from typing import TextIO
+from xml.sax.saxutils import escape
 
 from builderer.details.targets.apple_application import (
     AppleApplication,
@@ -50,7 +51,7 @@ COMPILE_EXTS = frozenset(CC_EXTS + CXX_EXTS)
 
 def _plist_value_to_xml_lines(value, indent: str = "  ") -> list[str]:
     if isinstance(value, str):
-        return [f"{indent}<string>{value}</string>"]
+        return [f"{indent}<string>{escape(value)}</string>"]
     elif isinstance(value, bool):
         return [f"{indent}<{str(value).lower()}/>"]
     elif isinstance(value, int):
@@ -66,7 +67,7 @@ def _plist_value_to_xml_lines(value, indent: str = "  ") -> list[str]:
     elif isinstance(value, dict):
         lines = [f"{indent}<dict>"]
         for key in sorted(value.keys()):
-            lines.append(f"{indent}  <key>{str(key)}</key>")
+            lines.append(f"{indent}  <key>{escape(str(key))}</key>")
             lines.extend(_plist_value_to_xml_lines(value[key], indent + "  "))
         lines.append(f"{indent}</dict>")
         return lines
@@ -82,7 +83,7 @@ def _plist_dict_to_xml_text(info_plist: dict) -> str:
         "<dict>",
     ]
     for key in sorted(info_plist.keys()):
-        lines.append(f"  <key>{str(key)}</key>")
+        lines.append(f"  <key>{escape(str(key))}</key>")
         lines.extend(_plist_value_to_xml_lines(info_plist[key], "  "))
     lines.extend(["</dict>", "</plist>"])
     return "\n".join(lines)

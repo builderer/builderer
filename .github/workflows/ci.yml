@@ -22,14 +22,32 @@ jobs:
       uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
-    - name: Install MyPy
-      run: pip install mypy==1.11.2 black==24.8.0
     - name: Clone Builderer
       uses: actions/checkout@v4
+    - name: Install Tools
+      run: pip install -r requirements-dev.txt
     - name: MyPy
-      run: mypy builderer --check-untyped-defs
+      run: mypy builderer tests --check-untyped-defs
     - name: Formatting
       run: black --check .
+
+  UnitTests:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["pypy3.9", "pypy3.10", "3.9", "3.10", "3.12", "3.13"]
+    steps:
+    - name: Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+    - name: Clone Builderer
+      uses: actions/checkout@v4
+    - name: Install Builderer + tools
+      run: pip install . -r requirements-dev.txt
+    - name: Run unit tests
+      run: pytest
 
   Determinism:
     runs-on: ubuntu-latest
