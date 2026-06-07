@@ -318,9 +318,13 @@ class MsBuildProject:
         append_text_element(xgroup, "EnforceProcessCountAcrossBuilds", "true")
 
     def _append_dependencies(self, xparent: ParentNode):
+        # Only binaries carry edges, referencing their full transitive lib closure: a
+        # static lib links nothing, so the binary alone must list every .lib to link.
+        if not isinstance(self.target, CCBinary):
+            return
         deps = [
             dep
-            for _, dep in self.workspace.direct_dependencies(self.package, self.target)
+            for _, dep in self.workspace.all_dependencies(self.package, self.target)
             if isinstance(dep, BuildTarget)
         ]
         if not deps:
