@@ -178,3 +178,44 @@ def test_visual_studio_version_selects_platform_toolset():
     assert "v145" in _texts(doc_2026, "PlatformToolset")
     doc_2022 = _render(app, pkg, make_workspace([pkg]))
     assert "v143" in _texts(doc_2022, "PlatformToolset")
+
+
+def test_binary_references_full_transitive_lib_closure():
+    # Regression: app -> mid(real) -> hdr(header-only) -> deep(real).
+    # deep must be a direct ProjectReference of the binary; MSBuild's transitive
+    # LinkLibraryDependencies recursion could not carry deep's .lib through the .lib-less
+    # header-only hdr, dropping it from the link line. Flattening onto the binary fixes it.
+    deep = make_cc_library("deep", srcs=["pkg/deep.cpp"])
+    hdr = make_cc_library("hdr", hdrs=["pkg/hdr.h"], deps=[":deep"])
+    mid = make_cc_library("mid", srcs=["pkg/mid.cpp"], deps=[":hdr"])
+    app = make_cc_binary("app", srcs=["pkg/main.cpp"], deps=[":mid"])
+    pkg = make_package("pkg", [deep, hdr, mid, app])
+    refs = _includes(_render(app, pkg, make_workspace([pkg])), "ProjectReference")
+    assert any("deep.vcxproj" in r for r in refs)
+    assert any("mid.vcxproj" in r for r in refs)
+    assert any("hdr.vcxproj" in r for r in refs)
+
+
+def test_library_emits_no_project_references():
+    # lib->lib edges are gone: a library references nothing (it links nothing; its deps'
+    # headers reach it via the separate include walk, not via project references).
+    deep = make_cc_library("deep", srcs=["pkg/deep.cpp"])
+    mid = make_cc_library("mid", srcs=["pkg/mid.cpp"], deps=[":deep"])
+    pkg = make_package("pkg", [deep, mid])
+    refs = _includes(_render(mid, pkg, make_workspace([pkg])), "ProjectReference")
+    assert refs == []
+
+
+def test_library_still_gets_transitive_includes_without_references():
+    # Removing lib->lib edges must NOT break include/define propagation into libraries.
+    deep = make_cc_library(
+        "deep",
+        srcs=["pkg/deep.cpp"],
+        public_includes=["pkg/deepinc"],
+        public_defines=["DEEP"],
+    )
+    mid = make_cc_library("mid", srcs=["pkg/mid.cpp"], deps=[":deep"])
+    pkg = make_package("pkg", [deep, mid])
+    doc = _render(mid, pkg, make_workspace([pkg]))
+    assert "deepinc" in ";".join(_texts(doc, "AdditionalIncludeDirectories"))
+    assert "DEEP" in ";".join(_texts(doc, "PreprocessorDefinitions"))
