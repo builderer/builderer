@@ -216,7 +216,7 @@ jobs:
         builderer --config=${{ matrix.config }} build --build_config=release --build_arch=arm64
 
   Windows:
-    runs-on: windows-latest
+    runs-on: windows-2022
     steps:
     - uses: webfactory/ssh-agent@v0.7.0
       with:
