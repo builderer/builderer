@@ -9,6 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple, Union
 import os
+from collections import defaultdict
 from dataclasses import dataclass, field
 
 from builderer import Config
@@ -528,7 +529,7 @@ class TargetInfo:
     package: Package
     sources: List[str]  # Paths relative to workspace root
     headers: List[str]  # Paths relative to workspace root
-    resources: List[str]  # Paths relative to workspace root
+    resources: List[Tuple[str, str]]  # (src, dst): dst is the in-bundle path
     product_type: ProductType
     file_type: FileType
 
@@ -541,7 +542,7 @@ class TargetInfo:
     ) -> TargetInfo:
         sources: List[str] = []
         headers: List[str] = []
-        resources: List[str] = []
+        resources: List[Tuple[str, str]] = []
 
         if isinstance(target, (CCBinary, CCLibrary)):
             # Gather sources and headers across all configs
@@ -587,14 +588,12 @@ class TargetInfo:
                 file_type = FileType.EXECUTABLE
         elif isinstance(target, AppleApplication):
             app_source_set: Set[str] = set()
-            resource_set: Set[str] = set()
             _, dep_binary = target.resolve_binary_target(workspace, package)
             binary_sources = resolve_conditionals(base_config, dep_binary.srcs)
             app_source_set.update(str(p) for p in binary_sources)
-            resource_paths = resolve_conditionals(base_config, target.resources)
-            resource_set.update(str(p) for p in resource_paths)
             sources = sorted(app_source_set)
-            resources = sorted(resource_set)
+            # Merged (src, dst) resource pairs from the app's file_groups.
+            resources = target.resolve_resources(workspace, package)
             product_type = ProductType.APPLICATION
             file_type = FileType.APP
         elif isinstance(target, MetalLibrary):
@@ -1459,13 +1458,18 @@ def create_target(
 
         headers_group.children.append(Reference(file_ref.id))
 
+    # Resources come from file_groups as (src, dst) pairs (dst = path within the
+    # bundle's resources dir). Root-level files use the standard Copy Bundle
+    # Resources phase; files in subdirectories use a Copy Files phase per subdir
+    # (dstPath) so layout is preserved -- the resources phase would flatten them.
     resource_build_files: List[PBXBuildFile] = []
-    for resource in target_info.resources:
-        resource_path = os.path.relpath(resource, str(project_info.workspace_root))
-        _, ext = os.path.splitext(resource.lower())
+    resource_copy_files: Dict[str, List[PBXBuildFile]] = defaultdict(list)
+    for src, dst in target_info.resources:
+        resource_path = os.path.relpath(src, str(project_info.workspace_root))
+        _, ext = os.path.splitext(src.lower())
         if resource_path not in file_ref_registry:
             file_ref = PBXFileReference(
-                name=os.path.basename(resource),
+                name=os.path.basename(src),
                 path=resource_path,
                 sourceTree=SourceTree.SOURCE_ROOT,
                 fileType=FileType.from_extension(ext),
@@ -1474,12 +1478,16 @@ def create_target(
         else:
             file_ref = file_ref_registry[resource_path]
         resources_group.children.append(Reference(file_ref.id))
+        subdir = os.path.dirname(dst)
         build_file = PBXBuildFile(
             fileRef=Reference(file_ref.id),
-            name=os.path.basename(resource),
-            target_name=full_name,
+            name=os.path.basename(src),
+            target_name=full_name if not subdir else f"{full_name}:resources:{subdir}",
         )
-        resource_build_files.append(build_file)
+        if subdir:
+            resource_copy_files[subdir].append(build_file)
+        else:
+            resource_build_files.append(build_file)
 
     # Create product reference - path includes package to ensure uniqueness.
     # Derive filename from shared artifact logic to avoid duplicating naming rules.
@@ -1527,6 +1535,20 @@ def create_target(
         ],
         target_name=full_name,
     )
+    # One Copy Files (Resources) phase per destination subdirectory; dstPath places
+    # each group under Resources/<subdir>, preserving the file_group layout.
+    resource_copy_phases = [
+        PBXCopyFilesBuildPhase(
+            files=[Reference(bf.id) for bf in sorted(bfs, key=lambda bf: bf.id)],
+            dstPath=subdir,
+            dstSubfolderSpec=DstSubfolderSpec.RESOURCES,
+            target_name=f"{full_name}:resources:{subdir}",
+        )
+        for subdir, bfs in sorted(resource_copy_files.items())
+    ]
+    resource_copy_build_files = [
+        bf for bfs in resource_copy_files.values() for bf in bfs
+    ]
 
     # Create configurations - one per build config per target
     target_configs = []
@@ -1899,6 +1921,7 @@ def create_target(
             Reference(sources_phase.id),
             Reference(frameworks_phase.id),
             Reference(resources_phase.id),
+            *[Reference(p.id) for p in resource_copy_phases],
         ],
         buildConfigurationList=Reference(config_list.id),
         productReference=Reference(product_ref.id),
@@ -1913,8 +1936,14 @@ def create_target(
         ],  # Only return product ref, others are in registry
         groups=[target_group, sources_group, headers_group, resources_group],
         build_files=source_build_files
-        + resource_build_files,  # Headers not in build files
-        build_phases=[sources_phase, frameworks_phase, resources_phase],
+        + resource_build_files
+        + resource_copy_build_files,  # Headers not in build files
+        build_phases=[
+            sources_phase,
+            frameworks_phase,
+            resources_phase,
+            *resource_copy_phases,
+        ],
         configurations=target_configs,
         config_list=config_list,
     )
