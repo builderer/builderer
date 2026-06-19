@@ -4,6 +4,7 @@ from typing import Dict, Type
 from builderer.details.targets.apple_application import AppleApplication
 from builderer.details.targets.cc_binary import CCBinary
 from builderer.details.targets.cc_library import CCLibrary
+from builderer.details.targets.file_group import FileGroup
 from builderer.details.targets.generate_files import GenerateFiles
 from builderer.details.targets.git_repository import GitRepository
 from builderer.details.targets.https_repository import HttpsRepository
@@ -26,6 +27,9 @@ class BuiltinRules:
 
     def generate_files(self, **kwargs):
         self.outer.add_target(target_type=GenerateFiles, **kwargs)
+
+    def file_group(self, **kwargs):
+        self.outer.add_target(target_type=FileGroup, **kwargs)
 
     def cc_library(self, **kwargs):
         self.outer.add_target(target_type=CCLibrary, **kwargs)

@@ -99,7 +99,7 @@ pkg.apple_application(
     },
     device_families = [Optional(Condition(platform="ios"), "iphone", "ipad")],
     development_team = Optional(Condition(platform="ios"), "{__env__:DEVELOPMENT_TEAM}"),
-    resources = ["Assets/AppIcon.icns"],
+    resources = [":app_assets"],   # file_group labels (see file_group below)
 )
 ```
 
@@ -110,7 +110,12 @@ pkg.apple_application(
   deployment-target key (`MinimumOSVersion` on iOS, `LSMinimumSystemVersion` on
   macOS) sets the deployment target. Values may be scalars, lists, nested dicts,
   or [conditionals](configuration.md#conditionals-in-dicts-and-scalar-fields).
-- `resources` — copied into the bundle's resources.
+- `resources` — a list of [`file_group`](#file_group) target labels (e.g.
+  `":app_assets"`). Each group's files are copied into the bundle's resources
+  directory, preserving each file's layout relative to the group's `strip_prefix`.
+  Labels are folded into `deps`, so the dependency graph orders and validates them.
+  A destination shared by two groups is an error. On macOS resources land under
+  `Contents/Resources/`; on iOS (a flat bundle) they land at the `.app` root.
 - `deps` (optional) — additional targets to embed into the bundle, currently
   [`metal_library`](#metal_library) targets. Each listed library's
   `<target.name>.metallib` is copied into the app's resources root.
@@ -125,6 +130,55 @@ pkg.apple_application(
 One iOS config produces a single Xcode project covering both device and
 simulator, selected at build time (Xcode destination or `xcodebuild -sdk`) — not
 a builderer conditional.
+
+### file_group
+
+A general-purpose, declaration-only target: a set of files selected by globs whose
+directory layout is preserved relative to `strip_prefix`. It builds nothing of its
+own; other targets consume it — today, an [`apple_application`](#apple_application)'s
+`resources`.
+
+```python
+pkg.file_group(
+    name = "app_assets",
+    strip_prefix = "assets",
+    srcs = [
+        "assets/textures/**/*.png",
+        "assets/sounds/**/*.wav",
+        "!**/.*",                     # exclude hidden files (e.g. .DS_Store)
+    ],
+)
+```
+
+**Fields:**
+
+- `srcs` — package-relative globs (with `!` excludes), exactly like a library's
+  `srcs`. May reference generated/fetched inputs via `{Package:target}`.
+- `strip_prefix` (optional) — the prefix removed from each matched source to form
+  its destination: `dst` is the source's path relative to `strip_prefix`, with the
+  rest of the path preserved. Defaults to the package root (strips nothing, so the
+  full package-relative path is kept). Matching normalizes paths (`..`, `.`,
+  trailing slashes), so it is never a naive string prefix. A file directly under
+  `strip_prefix` lands flat at the resources root; nested files keep their
+  sub-structure.
+- `condition` (optional) — gates the whole group per platform/toolchain, like any
+  target.
+- `deps` (optional) — e.g. a [`generate_files`](#generate_files) or repository
+  target supplying the sources.
+
+To merge several sources into one bundle, declare multiple groups and list them all
+in an app's `resources`; a destination shared by two groups is an error. Because a
+`file_group` is an ordinary target, it composes with generated assets:
+
+```python
+pkg.generate_files(name = "gen_icons", args = [...])
+pkg.file_group(
+    name = "icons",
+    strip_prefix = "{MyPackage:gen_icons}/",
+    srcs = ["{MyPackage:gen_icons}/*.png"],
+    deps = [":gen_icons"],
+)
+```
 
 ### metal_library
 

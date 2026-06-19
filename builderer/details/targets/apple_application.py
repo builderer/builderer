@@ -1,7 +1,8 @@
-from typing import Iterator, List, Optional, Tuple, Union
+from typing import List, Optional, Union
 
 from builderer.conditional import ConditionalValue
 from builderer.details.targets.cc_binary import CCBinary
+from builderer.details.targets.file_group import FileGroup
 from builderer.details.targets.metal_library import MetalLibrary
 from builderer.details.targets.swift_binary import SwiftBinary
 from builderer.details.targets.target import (
@@ -63,10 +64,12 @@ class AppleApplication(BuildTarget):
         deps: list = [],
         **kwargs,
     ):
-        # The wrapped binary is always a dependency; additional deps (e.g.
-        # metal_library targets, whose <target.name>.metallib the app embeds) are
-        # appended. The binary stays first so existing assumptions hold.
-        super().__init__(deps=[binary, *deps], **kwargs)
+        # The wrapped binary is always a dependency; resource file_group labels and
+        # any additional deps (e.g. metal_library targets, whose <target.name>.metallib
+        # the app embeds) are appended. The binary stays first so existing assumptions
+        # hold. Folding resources into deps lets the dependency graph validate and
+        # order them, so a file_group's generated/fetched sources are built first.
+        super().__init__(deps=[binary, *resources, *deps], **kwargs)
         self.binary = binary
         # An app bundle is invalid without an Info.plist (it must carry at least
         # CFBundleIdentifier/CFBundleExecutable), so info_plist is required. It
@@ -84,7 +87,11 @@ class AppleApplication(BuildTarget):
                 f"AppleApplication '{self.name}' expected info_plist to be a dict or "
                 f"a conditional, got {type(info_plist).__name__}"
             )
-        self.resources = list(resources)
+        # resources is a list of file_group target labels (e.g. ":icons"); each
+        # referenced group's files are merged into the bundle's resources dir,
+        # preserving its layout relative to its strip_prefix. Resolved to (src, dst)
+        # pairs by resolve_resources(); also folded into deps above.
+        self.resources = resources
         self.development_team = development_team
         # A list of family names, or None. Conditionals on scalar config fields
         # (e.g. Optional(Condition(platform="ios"), ...)) are resolved by the
@@ -106,14 +113,6 @@ class AppleApplication(BuildTarget):
                     f"'{name}'; expected one of {sorted(DEVICE_FAMILY_CODES)}"
                 )
         return ",".join(str(DEVICE_FAMILY_CODES[name]) for name in self.device_families)
-
-    def get_file_path_fields(self) -> Iterator[Tuple[str, list]]:
-        if self.resources:
-            yield "resource", self.resources
-
-    def get_dir_path_fields(self) -> Iterator[Tuple[str, list]]:
-        return
-        yield
 
     def resolve_binary_target(self, workspace, package):
         dep_package, dep_target = workspace.find_target(self.binary, package)
@@ -152,13 +151,39 @@ class AppleApplication(BuildTarget):
             results.append((dep_package, dep_target))
         return results
 
+    # Merged (src, dst) resource pairs from the referenced file_groups. dst is the
+    # POSIX in-bundle path, computed once here so both generators emit identical
+    # layouts; raises on a destination collision, naming both sources.
+    def resolve_resources(self, workspace, package):
+        dst_to_src: dict[str, str] = {}
+        for label in self.resources:
+            _, file_group = workspace.find_target(label, package)
+            if not isinstance(file_group, FileGroup):
+                raise ValueError(
+                    f"AppleApplication '{self.name}' resources entry '{label}' "
+                    f"must reference a file_group target"
+                )
+            for src, dst in file_group.resource_destinations():
+                existing = dst_to_src.get(dst)
+                if existing is not None and existing != src:
+                    raise ValueError(
+                        f"AppleApplication '{self.name}' resource collision at "
+                        f"'{dst}': '{existing}' and '{src}' both map there"
+                    )
+                dst_to_src[dst] = src
+        return sorted(
+            ((src, dst) for dst, src in dst_to_src.items()), key=lambda p: p[1]
+        )
 
-# An app wraps one cc/swift binary and embeds metal_library metallibs; inputs may
-# come from a repository or a generated-file (prebuild) target.
+
+# An app wraps one cc/swift binary, embeds metal_library metallibs, and copies
+# file_group resources into its bundle; inputs may come from a repository or a
+# generated-file (prebuild) target.
 AppleApplication.allowed_deps_types = (
     CCBinary,
     SwiftBinary,
     MetalLibrary,
+    FileGroup,
     RepositoryTarget,
     PreBuildTarget,
 )
