@@ -25,7 +25,7 @@ TOOLCHAIN_TOOLS = {
     "emscripten": {
         "CC": "emcc",
         "CXX": "em++",
-        "CCLD": "emcc",
+        "CCLD": "em++",
         "AR": "emar",
         "RANLIB": "emranlib",
     },
