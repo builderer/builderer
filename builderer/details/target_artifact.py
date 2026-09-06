@@ -15,7 +15,6 @@ from builderer.details.targets.target import BuildTarget
 from builderer.details.variable_expansion import resolve_conditionals
 from builderer.details.workspace import Workspace
 
-
 LIBRARY_NAMING_BY_PLATFORM = {
     "windows": ("", ".lib"),
     "linux": ("lib", ".a"),
