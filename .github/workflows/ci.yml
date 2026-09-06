@@ -28,7 +28,9 @@ jobs:
       run: pip install -r requirements-dev.txt
     - name: MyPy
       run: mypy builderer tests --check-untyped-defs
+    # black requires Python >= 3.10, so it is absent on the 3.9 leg.
     - name: Formatting
+      if: matrix.python-version != '3.9'
       run: black --check .
 
   UnitTests:

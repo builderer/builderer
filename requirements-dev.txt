@@ -1,3 +1,5 @@
 mypy==1.11.2
-black==24.8.0
+# black requires Python >= 3.10; builderer supports 3.9. Versions of black old
+# enough to run on 3.9 are affected by CVE-2026-32274.
+black==26.3.1; python_version >= "3.10"
 pytest==9.0.3
