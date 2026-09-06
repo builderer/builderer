@@ -6,6 +6,8 @@ formatter emits a pbxproj skeleton. This exercises a large swath of
 model_builder.py / formatter.py without touching disk or running Xcode.
 """
 
+import unittest
+
 from builderer.generators.xcode.model import ProductType
 from builderer.generators.xcode.model_builder import generate_xcode_project
 from builderer.generators.xcode.formatter import format_xcode_project
@@ -14,7 +16,7 @@ from builderer.generators.xcode.validator import (
     validate_output_paths,
 )
 
-from conftest import (
+from factories import (
     make_config,
     make_cc_library,
     make_cc_binary,
@@ -45,27 +47,25 @@ def _project():
     return generate_xcode_project(config, ws)
 
 
-def test_generated_model_has_no_dangling_references():
-    proj = _project()
-    assert validate_references(proj) == []
-    validate_output_paths(proj)  # must not raise
+class TestXcodeGenerator(unittest.TestCase):
+    def test_generated_model_has_no_dangling_references(self):
+        proj = _project()
+        self.assertEqual(validate_references(proj), [])
+        validate_output_paths(proj)  # must not raise
 
+    def test_model_has_a_native_target_per_build_target(self):
+        by_name = {t.name: t.productType for t in _project().nativeTargets}
+        self.assertEqual(by_name["pkg:mylib"], ProductType.STATIC_LIBRARY)
+        self.assertEqual(by_name["pkg:app"], ProductType.TOOL)
 
-def test_model_has_a_native_target_per_build_target():
-    by_name = {t.name: t.productType for t in _project().nativeTargets}
-    assert by_name["pkg:mylib"] == ProductType.STATIC_LIBRARY
-    assert by_name["pkg:app"] == ProductType.TOOL
+    def test_model_includes_source_file_references(self):
+        paths = {r.path for r in _project().fileReferences}
+        self.assertTrue(any(p.endswith("lib.cpp") for p in paths))
+        self.assertTrue(any(p.endswith("main.cpp") for p in paths))
 
-
-def test_model_includes_source_file_references():
-    paths = {r.path for r in _project().fileReferences}
-    assert any(p.endswith("lib.cpp") for p in paths)
-    assert any(p.endswith("main.cpp") for p in paths)
-
-
-def test_formatter_emits_pbxproj_skeleton():
-    text = format_xcode_project(_project())
-    assert text.startswith("// !$*UTF8*$!")
-    assert "PBXNativeTarget" in text
-    assert "rootObject" in text
-    assert "pkg:app" in text
+    def test_formatter_emits_pbxproj_skeleton(self):
+        text = format_xcode_project(_project())
+        self.assertTrue(text.startswith("// !$*UTF8*$!"))
+        self.assertIn("PBXNativeTarget", text)
+        self.assertIn("rootObject", text)
+        self.assertIn("pkg:app", text)

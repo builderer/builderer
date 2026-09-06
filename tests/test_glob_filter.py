@@ -1,11 +1,14 @@
+import unittest
+
 from builderer.details.glob_filter import split_patterns
 
 
-def test_split_patterns_separates_bang_prefixed_excludes():
-    inc, exc = split_patterns(["*.cpp", "!*.test.cpp", "*.h"])
-    assert inc == ["*.cpp", "*.h"]
-    assert exc == ["*.test.cpp"]  # leading '!' marks an exclude and is stripped
+class TestGlobFilter(unittest.TestCase):
+    def test_split_patterns_separates_bang_prefixed_excludes(self):
+        inc, exc = split_patterns(["*.cpp", "!*.test.cpp", "*.h"])
+        self.assertEqual(inc, ["*.cpp", "*.h"])
+        # leading '!' marks an exclude and is stripped
+        self.assertEqual(exc, ["*.test.cpp"])
 
-
-def test_split_patterns_empty():
-    assert split_patterns([]) == ([], [])
+    def test_split_patterns_empty(self):
+        self.assertEqual(split_patterns([]), ([], []))

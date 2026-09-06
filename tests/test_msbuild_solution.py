@@ -1,13 +1,14 @@
 """Behavioral tests for the MSBuild .sln solution emitter (rendered to a StringIO)."""
 
 import io
+import unittest
 
 from builderer.details.workspace import target_full_name
 from builderer.generators.msbuild.project import MsBuildProject
 from builderer.generators.msbuild.solution import MsBuildSolution
 from builderer.generators.msbuild.version import VS_VERSIONS
 
-from conftest import (
+from factories import (
     make_config,
     make_cc_library,
     make_cc_binary,
@@ -32,15 +33,16 @@ def _solution_text():
     return buf.getvalue()
 
 
-def test_solution_lists_projects_and_their_dependencies():
-    out = _solution_text()
-    assert '"mylib"' in out and '"app"' in out
-    assert "ProjectDependencies" in out  # app depends on mylib
+class TestMsBuildSolution(unittest.TestCase):
+    def test_solution_lists_projects_and_their_dependencies(self):
+        out = _solution_text()
+        self.assertIn('"mylib"', out)
+        self.assertIn('"app"', out)
+        self.assertIn("ProjectDependencies", out)  # app depends on mylib
 
-
-def test_solution_emits_config_arch_matrix():
-    out = _solution_text()
-    assert "debug|x64 = debug|x64" in out
-    assert "release|x64 = release|x64" in out
-    assert ".ActiveCfg = debug|x64" in out
-    assert ".Build.0 = release|x64" in out
+    def test_solution_emits_config_arch_matrix(self):
+        out = _solution_text()
+        self.assertIn("debug|x64 = debug|x64", out)
+        self.assertIn("release|x64 = release|x64", out)
+        self.assertIn(".ActiveCfg = debug|x64", out)
+        self.assertIn(".Build.0 = release|x64", out)
