@@ -3,30 +3,23 @@
 The URL-name parsing tests are pure (urllib.parse only -- no sockets). The
 download/checksum tests drive the real do_pre_build logic with the underlying
 network API (urllib.request.urlopen) mocked, so no network access ever happens;
-a tmp_path is used only as a scratch sink for the unavoidable archive I/O.
+a temporary directory is used only as a scratch sink for the unavoidable
+archive I/O.
 """
 
 import hashlib
 import io
 import tarfile
+import tempfile
+import unittest
 import urllib.request
-
-import pytest
+from pathlib import Path
+from unittest import mock
 
 from builderer.details.targets.https_repository import (
     _archive_name_from_url,
     HttpsRepository,
 )
-
-
-def test_archive_name_from_url_uses_path_basename():
-    assert _archive_name_from_url("https://example.com/a/file.zip?token=abc") == (
-        "file.zip"
-    )
-
-
-def test_archive_name_from_url_falls_back_when_no_filename():
-    assert _archive_name_from_url("https://example.com/") == "archive"
 
 
 def _targz_bytes():
@@ -51,19 +44,42 @@ def _repo(sha256, sandbox_root):
     return repo
 
 
-def test_do_pre_build_extracts_when_checksum_matches(tmp_path, monkeypatch):
-    archive = _targz_bytes()
-    monkeypatch.setattr(urllib.request, "urlopen", lambda request: io.BytesIO(archive))
-    repo = _repo(hashlib.sha256(archive).hexdigest(), tmp_path / "sb")
-    repo.do_pre_build()
-    # single-dir archive is unwrapped, so the file lands directly in the sandbox
-    assert (tmp_path / "sb" / "file.txt").read_text() == "hello"
+class TestArchiveNameFromUrl(unittest.TestCase):
+    def test_archive_name_from_url_uses_path_basename(self):
+        self.assertEqual(
+            _archive_name_from_url("https://example.com/a/file.zip?token=abc"),
+            "file.zip",
+        )
+
+    def test_archive_name_from_url_falls_back_when_no_filename(self):
+        self.assertEqual(_archive_name_from_url("https://example.com/"), "archive")
 
 
-def test_do_pre_build_rejects_checksum_mismatch(tmp_path, monkeypatch):
-    archive = _targz_bytes()
-    monkeypatch.setattr(urllib.request, "urlopen", lambda request: io.BytesIO(archive))
-    repo = _repo("00" * 32, tmp_path / "sb")
-    with pytest.raises(RuntimeError, match="checksum verification failed"):
-        repo.do_pre_build()
-    assert not (tmp_path / "sb").exists()  # nothing is left behind on failure
+class TestHttpsRepositoryPreBuild(unittest.TestCase):
+    def test_do_pre_build_extracts_when_checksum_matches(self):
+        archive = _targz_bytes()
+        with tempfile.TemporaryDirectory() as scratch:
+            sandbox = Path(scratch) / "sb"
+            with mock.patch.object(
+                urllib.request, "urlopen", lambda request: io.BytesIO(archive)
+            ):
+                repo = _repo(hashlib.sha256(archive).hexdigest(), sandbox)
+                repo.do_pre_build()
+            # single-dir archive is unwrapped, so the file lands directly in
+            # the sandbox
+            self.assertEqual((sandbox / "file.txt").read_text(), "hello")
+
+    def test_do_pre_build_rejects_checksum_mismatch(self):
+        archive = _targz_bytes()
+        with tempfile.TemporaryDirectory() as scratch:
+            sandbox = Path(scratch) / "sb"
+            with mock.patch.object(
+                urllib.request, "urlopen", lambda request: io.BytesIO(archive)
+            ):
+                repo = _repo("00" * 32, sandbox)
+                with self.assertRaisesRegex(
+                    RuntimeError, "checksum verification failed"
+                ):
+                    repo.do_pre_build()
+            # nothing is left behind on failure
+            self.assertFalse(sandbox.exists())

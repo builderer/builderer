@@ -3,7 +3,7 @@ models and assert it complains. (The happy path -- a real generated model passin
 validation -- is covered by test_xcode_generator.)
 """
 
-import pytest
+import unittest
 
 from builderer.generators.xcode.validator import (
     validate_references,
@@ -60,17 +60,17 @@ def _native_target(file_ref):
     )
 
 
-def test_validate_references_flags_a_dangling_reference():
-    project = _minimal_project(targets=[Reference(XcodeID("DEADBEEF" * 3))])
-    assert any("DEADBEEF" in e for e in validate_references(project))
+class TestXcodeValidator(unittest.TestCase):
+    def test_validate_references_flags_a_dangling_reference(self):
+        project = _minimal_project(targets=[Reference(XcodeID("DEADBEEF" * 3))])
+        self.assertTrue(any("DEADBEEF" in e for e in validate_references(project)))
 
-
-def test_validate_output_paths_rejects_invalid_filesystem_chars():
-    file_ref = PBXFileReference(
-        name="bad", path="out:put.app", sourceTree=SourceTree.BUILT_PRODUCTS_DIR
-    )
-    project = _minimal_project(
-        file_refs=[file_ref], native_targets=[_native_target(file_ref)]
-    )
-    with pytest.raises(ValueError, match="invalid filesystem characters"):
-        validate_output_paths(project)
+    def test_validate_output_paths_rejects_invalid_filesystem_chars(self):
+        file_ref = PBXFileReference(
+            name="bad", path="out:put.app", sourceTree=SourceTree.BUILT_PRODUCTS_DIR
+        )
+        project = _minimal_project(
+            file_refs=[file_ref], native_targets=[_native_target(file_ref)]
+        )
+        with self.assertRaisesRegex(ValueError, "invalid filesystem characters"):
+            validate_output_paths(project)
