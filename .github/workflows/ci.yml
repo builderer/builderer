@@ -15,15 +15,15 @@ jobs:
       matrix:
         python-version: ["3.9", "3.10", "3.12", "3.13"]
     steps:
-    - uses: webfactory/ssh-agent@v0.7.0
+    - uses: webfactory/ssh-agent@v0.10.0
       with:
         ssh-private-key: ${{ secrets.CI_SSH_PRIVATE_KEY }}
     - name: Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@v7
       with:
         python-version: ${{ matrix.python-version }}
     - name: Clone Builderer
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
     - name: Install Tools
       run: pip install -r requirements-dev.txt
     - name: MyPy
@@ -39,11 +39,11 @@ jobs:
         python-version: ["pypy3.9", "pypy3.10", "3.9", "3.10", "3.12", "3.13"]
     steps:
     - name: Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@v7
       with:
         python-version: ${{ matrix.python-version }}
     - name: Clone Builderer
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
     - name: Install Builderer + tools
       run: pip install . -r requirements-dev.txt
     - name: Run unit tests
@@ -55,19 +55,19 @@ jobs:
       matrix:
         python-version: ["pypy3.9", "pypy3.10", "3.9", "3.10", "3.12", "3.13"]
     steps:
-    - uses: webfactory/ssh-agent@v0.7.0
+    - uses: webfactory/ssh-agent@v0.10.0
       with:
         ssh-private-key: ${{ secrets.CI_SSH_PRIVATE_KEY }}
     - name: Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@v7
       with:
         python-version: ${{ matrix.python-version }}
     - name: Clone Builderer
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
       with:
         path: builderer
     - name: Clone Examples
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
       with:
         repository: builderer/builderer-examples
         ref: main
@@ -109,14 +109,14 @@ jobs:
       matrix:
         python-version: ["pypy3.9", "pypy3.10", "3.9", "3.10", "3.12", "3.13"]
     steps:
-    - uses: mymindstorm/setup-emsdk@v14
+    - uses: emscripten-core/setup-emsdk@v15
       with:
         version: 4.0.20
-    - uses: webfactory/ssh-agent@v0.7.0
+    - uses: webfactory/ssh-agent@v0.10.0
       with:
         ssh-private-key: ${{ secrets.CI_SSH_PRIVATE_KEY }}
     - name: Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@v7
       with:
         python-version: ${{ matrix.python-version }}
     - name: Install Build Tools
@@ -124,11 +124,11 @@ jobs:
         sudo apt update
         sudo apt -y install build-essential g++-multilib libx11-dev libxcursor-dev libxinerama-dev libxi-dev libxrandr-dev
     - name: Clone Builderer
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
       with:
         path: builderer
     - name: Clone Examples
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
       with:
         repository: builderer/builderer-examples
         ref: main
@@ -172,18 +172,18 @@ jobs:
             config: ios
             manual_build: xcodebuild -project Out/build/ios-xcode.xcodeproj -alltargets -configuration debug -arch arm64 -sdk iphonesimulator
     steps:
-    - uses: webfactory/ssh-agent@v0.7.0
+    - uses: webfactory/ssh-agent@v0.10.0
       with:
         ssh-private-key: ${{ secrets.CI_SSH_PRIVATE_KEY }}
-    - uses: actions/setup-python@v5
+    - uses: actions/setup-python@v7
       with:
         python-version: '3.9'
     - name: Clone Builderer
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
       with:
         path: builderer
     - name: Clone Examples
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
       with:
         repository: builderer/builderer-examples
         ref: main
@@ -218,18 +218,18 @@ jobs:
   Windows:
     runs-on: windows-2022
     steps:
-    - uses: webfactory/ssh-agent@v0.7.0
+    - uses: webfactory/ssh-agent@v0.10.0
       with:
         ssh-private-key: ${{ secrets.CI_SSH_PRIVATE_KEY }}
-    - uses: actions/setup-python@v5
+    - uses: actions/setup-python@v7
       with:
         python-version: '3.13'
     - name: Clone Builderer
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
       with:
         path: builderer
     - name: Clone Examples
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
       with:
         repository: builderer/builderer-examples
         ref: main
