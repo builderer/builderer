@@ -86,6 +86,7 @@ def make_workspace(packages) -> Workspace:
     """
     ws = object.__new__(Workspace)
     ws.root = Path(".").resolve()
+    ws.env = {}
     ws.packages = {pkg.name: pkg for pkg in packages}
     ws._graph = {
         (package, target): [ws.find_target(dep, package) for dep in target.deps]

@@ -377,6 +377,21 @@ pkg.https_repository(
 
 `sha256` must be a 64-character hexadecimal SHA-256 digest.
 
+### Patching repositories
+
+Repository rules accept `patches`, a list of git-style diffs applied in order to the fetched source:
+
+```python
+pkg.git_repository(
+    name = "FmtRepo",
+    remote = "https://github.com/fmtlib/fmt.git",
+    sha = "10.2.1",
+    patches = ["patches/fmt/*.patch"],
+)
+```
+
+Changing the list or editing a patch re-fetches the repository and applies every patch again. Renames, mode changes, and binary patches are not supported.
+
 Reference the repository in paths using `{Package:Target}` expansion:
 
 ```python
