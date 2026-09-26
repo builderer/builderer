@@ -1,6 +1,11 @@
+from abc import ABC, abstractmethod
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Iterator, Tuple, Optional
 
 from builderer import Condition
+from builderer.details.file_utils import rename_with_retry
+from builderer.details.patch import apply_patch
 
 
 class Target:
@@ -54,11 +59,41 @@ class Target:
         )
 
 
-# Targets that are responsible for fetching code from remote sources
-# NOTE: repository targets do not support globbing
-class RepositoryTarget(Target):
-    def __init__(self, **kwargs):
+# Targets that are responsible for fetching code from remote sources. The
+# fetched tree is patched in a scratch directory and only then moved into the
+# sandbox, so a sandbox always holds a complete, fully patched tree. Any change
+# to the source or the ordered patch list yields a new sandbox hash, and with
+# it a fresh fetch.
+class RepositoryTarget(Target, ABC):
+    def __init__(self, *, patches: list = [], **kwargs):
         super().__init__(sandbox=True, **kwargs)
+        self.patches = list(patches)
+
+    def get_file_path_fields(self) -> Iterator[Tuple[str, list]]:
+        if self.patches:
+            yield "patches", self.patches
+
+    # Populate scratch with the pristine source tree and return the directory
+    # to install into the sandbox (scratch itself or a directory within it).
+    @abstractmethod
+    def fetch(self, scratch: Path) -> Path: ...
+
+    def do_pre_build(self):
+        assert self.sandbox_root
+        target_sandbox = Path(self.sandbox_root)
+        if target_sandbox.is_dir():
+            return
+        assert not target_sandbox.exists()
+        target_sandbox.parent.mkdir(parents=True, exist_ok=True)
+        with TemporaryDirectory(dir=str(target_sandbox.parent)) as tmp:
+            tree = self.fetch(Path(tmp))
+            self._apply_patches(tree)
+            rename_with_retry(tree, target_sandbox)
+
+    def _apply_patches(self, tree: Path):
+        for patch in self.patches:
+            print(f"applying {patch}")
+            apply_patch(tree, Path(patch))
 
 
 # Targets that produce their output from within builderer itself

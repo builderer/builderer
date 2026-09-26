@@ -4,7 +4,6 @@ import urllib.parse
 import urllib.request
 
 from pathlib import Path
-from tempfile import TemporaryDirectory
 
 from builderer.details.targets.target import RepositoryTarget
 
@@ -48,25 +47,17 @@ class HttpsRepository(RepositoryTarget):
         self.url = url
         self.sha256 = sha256
 
-    def do_pre_build(self):
-        assert self.sandbox_root
-        target_sandbox = Path(self.sandbox_root)
-        if target_sandbox.is_dir():
-            return
-        assert not target_sandbox.exists()
-        target_sandbox.parent.mkdir(parents=True, exist_ok=True)
-        with TemporaryDirectory(dir=str(target_sandbox.parent)) as tmp:
-            tmp_root = Path(tmp)
-            archive_path = tmp_root.joinpath(_archive_name_from_url(self.url))
-            extracted_root = tmp_root.joinpath("extracted")
-            extracted_root.mkdir(parents=True, exist_ok=False)
-            print(f"downloading {self.url}")
-            _download_archive(self.url, archive_path)
-            actual_digest = _checksum_file(archive_path)
-            if actual_digest.lower() != self.sha256.lower():
-                raise RuntimeError(
-                    f"checksum verification failed for {self.url}: "
-                    f"expected {self.sha256}, got {actual_digest}"
-                )
-            shutil.unpack_archive(str(archive_path), str(extracted_root))
-            _select_extracted_root(extracted_root).rename(target_sandbox)
+    def fetch(self, scratch: Path) -> Path:
+        archive_path = scratch.joinpath(_archive_name_from_url(self.url))
+        extracted_root = scratch.joinpath("extracted")
+        extracted_root.mkdir(parents=True, exist_ok=False)
+        print(f"downloading {self.url}")
+        _download_archive(self.url, archive_path)
+        actual_digest = _checksum_file(archive_path)
+        if actual_digest.lower() != self.sha256.lower():
+            raise RuntimeError(
+                f"checksum verification failed for {self.url}: "
+                f"expected {self.sha256}, got {actual_digest}"
+            )
+        shutil.unpack_archive(str(archive_path), str(extracted_root))
+        return _select_extracted_root(extracted_root)

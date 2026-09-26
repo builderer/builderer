@@ -14,6 +14,7 @@ import tempfile
 import unittest
 import urllib.request
 from pathlib import Path
+from textwrap import dedent
 from unittest import mock
 
 from builderer.details.targets.https_repository import (
@@ -33,12 +34,13 @@ def _targz_bytes():
     return buf.getvalue()
 
 
-def _repo(sha256, sandbox_root):
+def _repo(sha256, sandbox_root, patches=[]):
     repo = HttpsRepository(
         url="https://example.com/pkg.tar.gz",
         sha256=sha256,
         name="dep",
         workspace_root="pkg",
+        patches=patches,
     )
     repo.sandbox_root = str(sandbox_root)
     return repo
@@ -83,3 +85,24 @@ class TestHttpsRepositoryPreBuild(unittest.TestCase):
                     repo.do_pre_build()
             # nothing is left behind on failure
             self.assertFalse(sandbox.exists())
+
+    def test_do_pre_build_patches_extracted_root(self):
+        archive = _targz_bytes()
+        with tempfile.TemporaryDirectory() as scratch:
+            sandbox = Path(scratch) / "sb"
+            patch = Path(scratch) / "fix.patch"
+            patch.write_text(dedent("""\
+                --- a/file.txt
+                +++ b/file.txt
+                @@ -1 +1 @@
+                -hello
+                \\ No newline at end of file
+                +hello patched
+                """))
+            with mock.patch.object(
+                urllib.request, "urlopen", lambda request: io.BytesIO(archive)
+            ):
+                repo = _repo(hashlib.sha256(archive).hexdigest(), sandbox, [str(patch)])
+                repo.do_pre_build()
+            # patch paths are relative to the unwrapped archive root
+            self.assertEqual((sandbox / "file.txt").read_text(), "hello patched\n")
