@@ -70,6 +70,22 @@ class TestProjectSettings(unittest.TestCase):
         # unknown compiler flags are passed through verbatim
         self.assertIn("/customflag", _texts(doc, "AdditionalOptions"))
 
+    def test_cxx_standard_flags_map_to_language_standard(self):
+        expected = {
+            "/std:c++20": "stdcpp20",
+            "/std:c++23": "stdcpp23",
+            "/std:c++23preview": "stdcpp23",
+            "/std:c++latest": "stdcpplatest",
+        }
+        for flag, value in expected.items():
+            with self.subTest(flag=flag):
+                app = make_cc_binary("app", srcs=["pkg/main.cpp"], cxx_flags=[flag])
+                doc = _render_single(app)
+                self.assertEqual(_texts(doc, "LanguageStandard"), [value])
+                self.assertTrue(
+                    all(flag not in a for a in _texts(doc, "AdditionalOptions"))
+                )
+
     def test_globals_enable_parallel_build_settings(self):
         doc = _render_single(make_cc_binary("app", srcs=["pkg/main.cpp"]))
         self.assertIn("true", _texts(doc, "MultiProcessorCompilation"))

@@ -9,7 +9,10 @@ model_builder.py / formatter.py without touching disk or running Xcode.
 import unittest
 
 from builderer.generators.xcode.model import ProductType
-from builderer.generators.xcode.model_builder import generate_xcode_project
+from builderer.generators.xcode.model_builder import (
+    generate_xcode_project,
+    parse_compiler_flags,
+)
 from builderer.generators.xcode.formatter import format_xcode_project
 from builderer.generators.xcode.validator import (
     validate_references,
@@ -25,13 +28,14 @@ from factories import (
 )
 
 
-def _project():
+def _project(cxx_flags=[]):
     lib = make_cc_library(
         "mylib",
         srcs=["pkg/lib.cpp"],
         hdrs=["pkg/lib.h"],
         public_includes=["pkg/inc"],
         public_defines=["LIB=1"],
+        cxx_flags=cxx_flags,
     )
     app = make_cc_binary("app", srcs=["pkg/main.cpp"], deps=[":mylib"])
     pkg = make_package("pkg", [lib, app])
@@ -69,3 +73,41 @@ class TestXcodeGenerator(unittest.TestCase):
         self.assertIn("PBXNativeTarget", text)
         self.assertIn("rootObject", text)
         self.assertIn("pkg:app", text)
+
+
+class TestCompilerFlagParsing(unittest.TestCase):
+    def test_cxx_standard_flags_map_to_language_standard_setting(self):
+        expected = {
+            "-std=c++14": "c++14",
+            "-std=c++17": "c++17",
+            "-std=c++20": "c++20",
+            "-std=c++23": "c++23",
+            "-std=c++2b": "c++23",
+            "-std=c++26": "c++26",
+            "-std=c++2c": "c++26",
+            "-std=gnu++14": "gnu++14",
+            "-std=gnu++17": "gnu++17",
+            "-std=gnu++20": "gnu++20",
+            "-std=gnu++23": "gnu++23",
+            "-std=gnu++2b": "gnu++23",
+            "-std=gnu++26": "gnu++26",
+            "-std=gnu++2c": "gnu++26",
+        }
+        for flag, value in expected.items():
+            with self.subTest(flag=flag):
+                settings, remaining = parse_compiler_flags([flag])
+                self.assertEqual(settings, {"CLANG_CXX_LANGUAGE_STANDARD": value})
+                self.assertEqual(remaining, [])
+
+    def test_target_cxx_standard_becomes_build_setting(self):
+        proj = _project(cxx_flags=["-std=c++26"])
+        configs = [
+            c for c in proj.buildConfigurations if c.owner and "mylib" in c.owner
+        ]
+        self.assertTrue(configs)
+        for config in configs:
+            settings = config.buildSettings
+            self.assertEqual(settings["CLANG_CXX_LANGUAGE_STANDARD"].value, "c++26")
+            for name, setting in settings.items():
+                if name.startswith("OTHER_CPLUSPLUSFLAGS"):
+                    self.assertNotIn("-std=c++26", setting.value)

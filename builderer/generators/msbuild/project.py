@@ -111,6 +111,8 @@ CFLAG_MAPPING = {
     "/std:c++14": ("LanguageStandard", "stdcpp14"),
     "/std:c++17": ("LanguageStandard", "stdcpp17"),
     "/std:c++20": ("LanguageStandard", "stdcpp20"),
+    "/std:c++23": ("LanguageStandard", "stdcpp23"),
+    "/std:c++23preview": ("LanguageStandard", "stdcpp23"),
     "/std:c++latest": ("LanguageStandard", "stdcpplatest"),
     # Warnings
     "/W0": ("WarningLevel", "TurnOffAllWarnings"),
