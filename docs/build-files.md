@@ -76,6 +76,10 @@ pkg.cc_binary(
 
 `cc_binary` accepts `srcs`, `c_flags`, `cxx_flags`, `private_includes`, `private_defines`, `deps`, and `output_path`, plus `link_flags` (linker flags — not available on `cc_library`). It has no `hdrs` or `public_*` fields.
 
+### Flags and project settings
+
+The Makefile generator passes flags to the compiler verbatim. The Xcode and MSBuild generators translate every compiler, linker and Swift flag that has a native project setting (language standard, optimization, warnings, debug info, defines, search paths, etc.) into that setting, so it shows up in the IDE, and remove it from the command line. Unknown flags pass through unchanged.
+
 ### apple_application
 
 Defines a macOS or iOS `.app` bundle from a `cc_binary` or `swift_binary` target.
