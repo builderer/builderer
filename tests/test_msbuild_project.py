@@ -8,7 +8,7 @@ file classification code paths -- not just the mapping tables.
 import unittest
 from xml.dom.minidom import Document
 
-from builderer.generators.msbuild.project import MsBuildProject, unique_list
+from builderer.generators.msbuild.project import MsBuildProject
 from builderer.generators.msbuild.version import VS_VERSIONS
 
 from factories import (
@@ -47,11 +47,6 @@ def _render(target, package, workspace, version=VS2022):
 def _render_single(target):
     pkg = make_package("pkg", [target])
     return _render(target, pkg, make_workspace([pkg]))
-
-
-class TestUniqueList(unittest.TestCase):
-    def test_unique_list_dedupes_preserving_order(self):
-        self.assertEqual(unique_list([3, 1, 3, 2, 1]), [3, 1, 2])
 
 
 class TestProjectSettings(unittest.TestCase):

@@ -9,10 +9,8 @@ model_builder.py / formatter.py without touching disk or running Xcode.
 import unittest
 
 from builderer.generators.xcode.model import ProductType
-from builderer.generators.xcode.model_builder import (
-    generate_xcode_project,
-    parse_compiler_flags,
-)
+from builderer.generators.xcode.model_builder import generate_xcode_project
+from builderer.generators.xcode.settings import CLANG_FLAGS, parse
 from builderer.generators.xcode.formatter import format_xcode_project
 from builderer.generators.xcode.validator import (
     validate_references,
@@ -95,7 +93,7 @@ class TestCompilerFlagParsing(unittest.TestCase):
         }
         for flag, value in expected.items():
             with self.subTest(flag=flag):
-                settings, remaining = parse_compiler_flags([flag])
+                settings, remaining = parse(CLANG_FLAGS, [flag])
                 self.assertEqual(settings, {"CLANG_CXX_LANGUAGE_STANDARD": value})
                 self.assertEqual(remaining, [])
 

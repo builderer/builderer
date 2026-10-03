@@ -1,7 +1,6 @@
 import os
-from copy import deepcopy
 from pathlib import Path
-from typing import TextIO, List, Union
+from typing import Dict, List, Tuple, Union
 from xml.dom.minidom import Node, Document, Element
 
 from builderer import Config
@@ -13,6 +12,16 @@ from builderer.details.targets.cc_library import CCLibrary
 from builderer.details.targets.target import BuildTarget
 from builderer.details.variable_expansion import resolve_conditionals, bake_config
 from builderer.details.workspace import Workspace
+from builderer.generators.msbuild.settings import (
+    CL_SWITCHES,
+    DEBUG_RUNTIME_LIBRARIES,
+    DEFAULT_COMPILE_SETTINGS,
+    DEFAULT_LINK_SETTINGS,
+    LINK_SWITCHES,
+    PROJECT_LINK_PROPERTIES,
+    map_flags,
+    switches_for,
+)
 from builderer.generators.msbuild.utils import (
     as_msft_path,
     make_guid,
@@ -88,112 +97,6 @@ def get_vcxproj_path(config: Config, target: BuildTarget):
 
 def get_filters_path(config: Config, target: BuildTarget):
     return get_project_root(config, target).joinpath(f"{target.name}.vcxproj.filters")
-
-
-def unique_list(l: list):
-    seen: set = set()
-
-    def visit(x):
-        if x not in seen:
-            seen.add(x)
-            return True
-        return False
-
-    return [x for x in l if visit(x)]
-
-
-# Mapping of known compiler flags to MSBuild settings...
-CFLAG_MAPPING = {
-    # C version
-    "/stc:c11": ("LanguageStandard_C", "stdc11"),
-    "/stc:c17": ("LanguageStandard_C", "stdc17"),
-    # C++ version
-    "/std:c++14": ("LanguageStandard", "stdcpp14"),
-    "/std:c++17": ("LanguageStandard", "stdcpp17"),
-    "/std:c++20": ("LanguageStandard", "stdcpp20"),
-    "/std:c++23": ("LanguageStandard", "stdcpp23"),
-    "/std:c++23preview": ("LanguageStandard", "stdcpp23"),
-    "/std:c++latest": ("LanguageStandard", "stdcpplatest"),
-    # Warnings
-    "/W0": ("WarningLevel", "TurnOffAllWarnings"),
-    "/W1": ("WarningLevel", "Level1"),
-    "/W2": ("WarningLevel", "Level2"),
-    "/W3": ("WarningLevel", "Level3"),
-    "/W4": ("WarningLevel", "Level4"),
-    "/Wall": ("WarningLevel", "EnableAllWarnings"),
-    "/WX": ("TreatWarningAsError", "true"),
-    "/WX-": ("TreatWarningAsError", "false"),
-    # Optimization
-    "/Od": ("Optimization", "Disabled"),
-    "/O1": ("Optimization", "MinSpace"),
-    "/O2": ("Optimization", "MaxSpeed"),
-    "/Ox": ("Optimization", "Full"),
-    "/GL": ("WholeProgramOptimization", "true"),
-    # Runtime Library
-    "/MD": ("RuntimeLibrary", "MultiThreadedDLL"),
-    "/MDd": ("RuntimeLibrary", "MultiThreadedDebugDLL"),
-    "/MT": ("RuntimeLibrary", "MultiThreaded"),
-    "/MTd": ("RuntimeLibrary", "MultiThreadedDebug"),
-    # Security Development Lifecycle checks
-    "/sdl": ("SDLCheck", "true"),
-    "/sdl-": ("SDLCheck", "false"),
-    # Security Checks
-    "/GS": ("BufferSecurityCheck", "true"),
-    "/GS-": ("BufferSecurityCheck", "false"),
-    # Runtime Checks
-    "/RTCs": ("BasicRuntimeChecks", "StackFrameRuntimeCheck"),
-    "/RTCu": ("BasicRuntimeChecks", "UninitializedLocalUsageCheck"),
-    "/RTC1": ("BasicRuntimeChecks", "EnableFastChecks"),
-    # Conformance
-    "/permissive": ("ConformanceMode", "false"),
-    "/permissive-": ("ConformanceMode", "true"),
-    # Debug info
-    "/Z7": ("DebugInformationFormat", "OldStyle"),
-    "/Zi": ("DebugInformationFormat", "ProgramDatabase"),
-    "/ZI": ("DebugInformationFormat", "EditAndContinue"),
-    # FPU Precision
-    "/fp:fast": ("FloatingPointModel", "Fast"),
-    "/fp:precise": ("FloatingPointModel", "Precise"),
-    "/fp:strict": ("FloatingPointModel", "Strict"),
-    # Exceptions
-    "/EHsc": ("ExceptionHandling", "Sync"),
-    "/EHa": ("ExceptionHandling", "Async"),
-    "/EHs": ("ExceptionHandling", "SyncCThrow"),
-}
-
-# Mapping of known linker flags to MSBuild settings...
-LFLAG_MAPPING = {
-    # Subsystem
-    "/SUBSYSTEM:CONSOLE": ("SubSystem", "Console"),
-    "/SUBSYSTEM:WINDOWS": ("SubSystem", "Windows"),
-    "/SUBSYSTEM:NATIVE": ("SubSystem", "Native"),
-    "/SUBSYSTEM:POSIX": ("SubSystem", "POSIX"),
-    "/SUBSYSTEM:EFI_APPLICATION": ("SubSystem", "EFI Application"),
-    "/SUBSYSTEM:EFI_BOOT_SERVICE_DRIVER": ("SubSystem", "EFI Boot Service Driver"),
-    "/SUBSYSTEM:EFI_RUNTIME_DRIVER": ("SubSystem", "EFI Runtime"),
-    # Debug info
-    "/DEBUG": ("GenerateDebugInformation", "true"),
-    "/DEBUG:FASTLINK": ("GenerateDebugInformation", "DebugFastLink"),
-    "/DEBUG:FULL": ("GenerateDebugInformation", "DebugFull"),
-}
-
-# Default compiler settings, these override msbuild defaults either because the
-# flag lags disable flags (can turn on but not off), or to otherwise provide
-# sensibe defaults...
-DEFAULT_COMPILE_SETTINGS = {
-    # These lack explicit disable flags...
-    "WholeProgramOptimization": "false",
-    "DebugInformationFormat": "None",
-    "BasicRuntimeChecks": "Default",
-    "ExceptionHandling": "false",
-    # Just sensible defaults...
-    "MultiProcessorCompilation": "true",
-}
-
-# Default linker settings, because some options have no explicit disable flag...
-DEFAULT_LINK_SETTINGS = {
-    "GenerateDebugInformation": "false",
-}
 
 
 class MsBuildProject:
@@ -365,7 +268,12 @@ class MsBuildProject:
         )
         xgroup.setAttribute("Label", "Configuration")
         append_text_element(xgroup, "ConfigurationType", self.configuration_type)
-        append_text_element(xgroup, "UseDebugLibraries", "true")  # TODO
+        runtime = self._compile_properties(config)[0].get("RuntimeLibrary")
+        append_text_element(
+            xgroup,
+            "UseDebugLibraries",
+            "true" if runtime in DEBUG_RUNTIME_LIBRARIES else "false",
+        )
         append_text_element(xgroup, "PlatformToolset", self.version.platform_toolset)
         append_text_element(xgroup, "CharacterSet", self.CHARACTER_SET)
         artifact_subpath = get_target_artifact_subpath(
@@ -409,28 +317,14 @@ class MsBuildProject:
         if self.requires_linking:
             self._append_link_config(xgroup, config=config)
 
-    def _append_compile_config(self, xparent: ParentNode, config: Config):
+    def _compile_properties(self, config: Config) -> Tuple[Dict[str, str], List[str]]:
         assert isinstance(self.target, (CCLibrary, CCBinary))
-        xcompile = append_element(xparent, "ClCompile")
-        # Parse out compiler flags into settings when possible...
-        compile_settings = DEFAULT_COMPILE_SETTINGS.copy()
-        unknown_cflags = []
-        compile_flags = unique_list(
-            resolve_conditionals(config=config, value=self.target.c_flags)
-            + resolve_conditionals(config=config, value=self.target.cxx_flags)
-        )
-        for cflag in compile_flags:
-            if cflag in CFLAG_MAPPING:
-                opt_name, opt_value = CFLAG_MAPPING[cflag]
-                compile_settings[opt_name] = opt_value
-            else:
-                unknown_cflags.append(cflag)
-        # Apply compiler settings...
-        for k, v in compile_settings.items():
-            append_text_element(xcompile, k, v)
-        append_text_element(xcompile, "ObjectFileName", "$(IntDir)%(Directory)")
-        # Remaining unknown compiler flags get passed through...
-        append_text_element(xcompile, "AdditionalOptions", " ".join(unknown_cflags))
+        flags = [
+            *resolve_conditionals(config=config, value=self.target.c_flags),
+            *resolve_conditionals(config=config, value=self.target.cxx_flags),
+        ]
+        properties = DEFAULT_COMPILE_SETTINGS.copy()
+        properties["ObjectFileName"] = "$(IntDir)%(Directory)"
         # Defines...
         defines = [
             *resolve_conditionals(config=config, value=self.target.private_defines)
@@ -451,7 +345,7 @@ class MsBuildProject:
                 )
             ]
         )
-        append_text_element(xcompile, "PreprocessorDefinitions", ";".join(defines))
+        properties["PreprocessorDefinitions"] = ";".join(defines)
         # Header search paths...
         includes = []
         if isinstance(self.target, (CCLibrary, CCBinary)):
@@ -484,30 +378,56 @@ class MsBuildProject:
                 )
             ]
         )
-        append_text_element(
-            xcompile, "AdditionalIncludeDirectories", ";".join(includes)
+        properties["AdditionalIncludeDirectories"] = ";".join(includes)
+        # Known compiler flags become properties, the rest pass through...
+        unknown_cflags = map_flags(
+            properties, flags, switches_for(CL_SWITCHES, self.version.platform_toolset)
         )
+        return properties, unknown_cflags
+
+    def _append_compile_config(self, xparent: ParentNode, config: Config):
+        xcompile = append_element(xparent, "ClCompile")
+        properties, unknown_cflags = self._compile_properties(config)
+        for k, v in properties.items():
+            append_text_element(xcompile, k, v)
+        append_text_element(xcompile, "AdditionalOptions", " ".join(unknown_cflags))
+
+    def _link_properties(self, config: Config) -> Tuple[Dict[str, str], List[str]]:
+        assert isinstance(self.target, CCBinary)
+        properties = DEFAULT_LINK_SETTINGS.copy()
+        # Known linker flags become properties, the rest pass through...
+        unknown_lflags = map_flags(
+            properties,
+            resolve_conditionals(config=config, value=self.target.link_flags),
+            switches_for(LINK_SWITCHES, self.version.platform_toolset),
+        )
+        return properties, unknown_lflags
 
     def _append_link_config(self, xparent: ParentNode, config: Config):
-        assert isinstance(self.target, CCBinary)
         xlink = append_element(xparent, "Link")
-        # Parse out compiler flags into settings when possible...
-        link_settings = DEFAULT_LINK_SETTINGS.copy()
-        unknown_lflags = []
-        for cflag in resolve_conditionals(config=config, value=self.target.link_flags):
-            if cflag in LFLAG_MAPPING:
-                opt_name, opt_value = LFLAG_MAPPING[cflag]
-                link_settings[opt_name] = opt_value
-            else:
-                unknown_lflags.append(cflag)
-        # Apply compiler settings...
-        for k, v in link_settings.items():
-            append_text_element(xlink, k, v)
-        # Remaining unknown compiler flags get passed through...
+        properties, unknown_lflags = self._link_properties(config)
+        for k, v in properties.items():
+            if k not in PROJECT_LINK_PROPERTIES:
+                append_text_element(xlink, k, v)
         append_text_element(xlink, "AdditionalOptions", " ".join(unknown_lflags))
         # Ensure we link to our dependencies
         xprojref = append_element(xparent, "ProjectReference")
         append_text_element(xprojref, "LinkLibraryDependencies", "true")
+
+    def _append_project_link_properties(self, xparent: ParentNode, config: Config):
+        properties, _ = self._link_properties(config)
+        project_properties = {
+            k: v for k, v in properties.items() if k in PROJECT_LINK_PROPERTIES
+        }
+        if not project_properties:
+            return
+        xgroup = append_element(xparent, "PropertyGroup")
+        xgroup.setAttribute(
+            "Condition",
+            f"'$(Configuration)|$(Platform)'=='{config.build_config}|{config.architecture}'",
+        )
+        for k, v in project_properties.items():
+            append_text_element(xgroup, k, v)
 
     def _append_project(self, xparent: ParentNode):
         xproj = append_element(xparent, "Project")
@@ -543,6 +463,10 @@ class MsBuildProject:
         # TODO: is this needed?
         for config in self.build_configs:
             self._append_local_app_data_platform(xproj, config=config)
+        # Link properties MSBuild reads at project level
+        if self.requires_linking:
+            for config in self.build_configs:
+                self._append_project_link_properties(xproj, config=config)
         # ItemDefinitionGroup
         for config in self.build_configs:
             self._append_config_definition_group(xproj, config=config)

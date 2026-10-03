@@ -78,7 +78,7 @@ pkg.cc_binary(
 
 ### Flags and project settings
 
-The Makefile generator passes flags to the compiler verbatim. The Xcode and MSBuild generators translate well-known flags (language standard, optimization, warnings, debug info, etc.) into native project settings, so they show up in the IDE. Unknown flags pass through to the compiler unchanged.
+The Makefile generator passes flags to the compiler verbatim. The Xcode and MSBuild generators translate every compiler, linker and Swift flag that has a native project setting (language standard, optimization, warnings, debug info, defines, search paths, etc.) into that setting, so it shows up in the IDE, and remove it from the command line. Unknown flags pass through unchanged.
 
 ### apple_application
 

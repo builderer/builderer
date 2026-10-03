@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple, Union
 import os
 from collections import defaultdict
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from builderer import Config
 from builderer.details.target_artifact import (
@@ -58,7 +58,14 @@ from builderer.generators.xcode.model import (
     ProxyType,
 )
 
-SettingValue = Union[str, YesNo]
+from builderer.generators.xcode.settings import (
+    CLANG_FLAGS,
+    LINKER_FLAGS,
+    SWIFT_FLAGS,
+    SettingValue,
+    parse,
+    project_settings,
+)
 
 
 # Apple platform/SDK traits live in these frozen dataclasses, keyed on
@@ -163,352 +170,6 @@ COMPILABLE_EXTENSIONS = frozenset(
         ".metal",
     }
 )
-
-
-@dataclass(frozen=True)
-class XcodeSetting:
-    name: str  # Xcode build setting name
-    default: SettingValue  # Default value at project level
-    choices: Dict[str, SettingValue] = field(
-        default_factory=dict
-    )  # flag -> value mapping
-
-
-# Unified table of Xcode build settings
-# - default: value set at project level
-# - choices: maps command-line flags to setting values (includes -Wno-* variants)
-# Flags not in any choices dict pass through to OTHER_CFLAGS (e.g. -Wall, -Wextra)
-XCODE_SETTINGS: List[XcodeSetting] = [
-    # Warning settings - defaults prevent Xcode from injecting its own -W flags
-    # Each includes both positive (-W*) and negative (-Wno-*) variants
-    XcodeSetting(
-        "GCC_WARN_64_TO_32_BIT_CONVERSION",
-        YesNo.NO,
-        {
-            "-Wshorten-64-to-32": YesNo.YES,
-            "-Wno-shorten-64-to-32": YesNo.NO,
-        },
-    ),
-    XcodeSetting(
-        "GCC_WARN_ABOUT_RETURN_TYPE",
-        YesNo.NO,
-        {
-            "-Wreturn-type": YesNo.YES,
-            "-Wno-return-type": YesNo.NO,
-        },
-    ),
-    XcodeSetting(
-        "GCC_WARN_UNDECLARED_SELECTOR",
-        YesNo.NO,
-        {
-            "-Wundeclared-selector": YesNo.YES,
-            "-Wno-undeclared-selector": YesNo.NO,
-        },
-    ),
-    XcodeSetting(
-        "GCC_WARN_UNINITIALIZED_AUTOS",
-        YesNo.NO,
-        {
-            "-Wuninitialized": YesNo.YES,
-            "-Wno-uninitialized": YesNo.NO,
-        },
-    ),
-    XcodeSetting(
-        "GCC_WARN_UNUSED_FUNCTION",
-        YesNo.NO,
-        {
-            "-Wunused-function": YesNo.YES,
-            "-Wno-unused-function": YesNo.NO,
-        },
-    ),
-    XcodeSetting(
-        "GCC_WARN_UNUSED_VARIABLE",
-        YesNo.NO,
-        {
-            "-Wunused-variable": YesNo.YES,
-            "-Wno-unused-variable": YesNo.NO,
-        },
-    ),
-    XcodeSetting(
-        "CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING",
-        YesNo.NO,
-        {
-            "-Wblock-capture-autoreleasing": YesNo.YES,
-            "-Wno-block-capture-autoreleasing": YesNo.NO,
-        },
-    ),
-    XcodeSetting(
-        "CLANG_WARN_BOOL_CONVERSION",
-        YesNo.NO,
-        {
-            "-Wbool-conversion": YesNo.YES,
-            "-Wno-bool-conversion": YesNo.NO,
-        },
-    ),
-    XcodeSetting(
-        "CLANG_WARN_COMMA",
-        YesNo.NO,
-        {
-            "-Wcomma": YesNo.YES,
-            "-Wno-comma": YesNo.NO,
-        },
-    ),
-    XcodeSetting(
-        "CLANG_WARN_CONSTANT_CONVERSION",
-        YesNo.NO,
-        {
-            "-Wconstant-conversion": YesNo.YES,
-            "-Wno-constant-conversion": YesNo.NO,
-        },
-    ),
-    XcodeSetting(
-        "CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS",
-        YesNo.NO,
-        {
-            "-Wdeprecated-implementations": YesNo.YES,
-            "-Wno-deprecated-implementations": YesNo.NO,
-        },
-    ),
-    XcodeSetting(
-        "CLANG_WARN_DIRECT_OBJC_ISA_USAGE",
-        YesNo.NO,
-        {
-            "-Wdeprecated-objc-isa-usage": YesNo.YES,
-            "-Wno-deprecated-objc-isa-usage": YesNo.NO,
-        },
-    ),
-    XcodeSetting(
-        "CLANG_WARN_DOCUMENTATION_COMMENTS",
-        YesNo.NO,
-        {
-            "-Wdocumentation": YesNo.YES,
-            "-Wno-documentation": YesNo.NO,
-        },
-    ),
-    XcodeSetting(
-        "CLANG_WARN_EMPTY_BODY",
-        YesNo.NO,
-        {
-            "-Wempty-body": YesNo.YES,
-            "-Wno-empty-body": YesNo.NO,
-        },
-    ),
-    XcodeSetting(
-        "CLANG_WARN_ENUM_CONVERSION",
-        YesNo.NO,
-        {
-            "-Wenum-conversion": YesNo.YES,
-            "-Wno-enum-conversion": YesNo.NO,
-        },
-    ),
-    XcodeSetting(
-        "CLANG_WARN_INFINITE_RECURSION",
-        YesNo.NO,
-        {
-            "-Winfinite-recursion": YesNo.YES,
-            "-Wno-infinite-recursion": YesNo.NO,
-        },
-    ),
-    XcodeSetting(
-        "CLANG_WARN_INT_CONVERSION",
-        YesNo.NO,
-        {
-            "-Wint-conversion": YesNo.YES,
-            "-Wno-int-conversion": YesNo.NO,
-        },
-    ),
-    XcodeSetting(
-        "CLANG_WARN_NON_LITERAL_NULL_CONVERSION",
-        YesNo.NO,
-        {
-            "-Wnon-literal-null-conversion": YesNo.YES,
-            "-Wno-non-literal-null-conversion": YesNo.NO,
-        },
-    ),
-    XcodeSetting(
-        "CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF",
-        YesNo.NO,
-        {
-            "-Wimplicit-retain-self": YesNo.YES,
-            "-Wno-implicit-retain-self": YesNo.NO,
-        },
-    ),
-    XcodeSetting(
-        "CLANG_WARN_OBJC_LITERAL_CONVERSION",
-        YesNo.NO,
-        {
-            "-Wobjc-literal-conversion": YesNo.YES,
-            "-Wno-objc-literal-conversion": YesNo.NO,
-        },
-    ),
-    XcodeSetting(
-        "CLANG_WARN_OBJC_ROOT_CLASS",
-        YesNo.NO,
-        {
-            "-Wobjc-root-class": YesNo.YES,
-            "-Wno-objc-root-class": YesNo.NO,
-        },
-    ),
-    XcodeSetting(
-        "CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER",
-        YesNo.NO,
-        {
-            "-Wquoted-include-in-framework-header": YesNo.YES,
-            "-Wno-quoted-include-in-framework-header": YesNo.NO,
-        },
-    ),
-    XcodeSetting(
-        "CLANG_WARN_RANGE_LOOP_ANALYSIS",
-        YesNo.NO,
-        {
-            "-Wrange-loop-analysis": YesNo.YES,
-            "-Wno-range-loop-analysis": YesNo.NO,
-        },
-    ),
-    XcodeSetting(
-        "CLANG_WARN_STRICT_PROTOTYPES",
-        YesNo.NO,
-        {
-            "-Wstrict-prototypes": YesNo.YES,
-            "-Wno-strict-prototypes": YesNo.NO,
-        },
-    ),
-    XcodeSetting(
-        "CLANG_WARN_SUSPICIOUS_MOVE",
-        YesNo.NO,
-        {
-            "-Wmove": YesNo.YES,
-            "-Wno-move": YesNo.NO,
-        },
-    ),
-    XcodeSetting(
-        "CLANG_WARN_UNGUARDED_AVAILABILITY",
-        YesNo.NO,
-        {
-            "-Wunguarded-availability": YesNo.YES,
-            "-Wno-unguarded-availability": YesNo.NO,
-        },
-    ),
-    XcodeSetting(
-        "CLANG_WARN_UNREACHABLE_CODE",
-        YesNo.NO,
-        {
-            "-Wunreachable-code": YesNo.YES,
-            "-Wno-unreachable-code": YesNo.NO,
-        },
-    ),
-    XcodeSetting(
-        "CLANG_WARN__DUPLICATE_METHOD_MATCH",
-        YesNo.NO,
-        {
-            "-Wduplicate-method-match": YesNo.YES,
-            "-Wno-duplicate-method-match": YesNo.NO,
-        },
-    ),
-    # Warning control
-    XcodeSetting(
-        "GCC_TREAT_WARNINGS_AS_ERRORS",
-        YesNo.NO,
-        {
-            "-Werror": YesNo.YES,
-            "-Wno-error": YesNo.NO,
-        },
-    ),
-    XcodeSetting(
-        "GCC_WARN_INHIBIT_ALL_WARNINGS",
-        YesNo.NO,
-        {
-            "-w": YesNo.YES,
-        },
-    ),
-    XcodeSetting(
-        "GCC_WARN_PEDANTIC",
-        YesNo.NO,
-        {
-            "-pedantic": YesNo.YES,
-            "-Wpedantic": YesNo.YES,
-            "-Wno-pedantic": YesNo.NO,
-        },
-    ),
-    # Optimization levels
-    XcodeSetting(
-        "GCC_OPTIMIZATION_LEVEL",
-        "0",
-        {
-            "-O0": "0",
-            "-O1": "1",
-            "-O2": "2",
-            "-O3": "3",
-            "-Os": "s",
-            "-Ofast": "fast",
-        },
-    ),
-    # Debug info
-    XcodeSetting(
-        "GCC_GENERATE_DEBUGGING_SYMBOLS",
-        YesNo.NO,
-        {
-            "-g": YesNo.YES,
-            "-g0": YesNo.NO,
-        },
-    ),
-    # C++ language standard
-    XcodeSetting(
-        "CLANG_CXX_LANGUAGE_STANDARD",
-        "c++17",
-        {
-            "-std=c++14": "c++14",
-            "-std=c++17": "c++17",
-            "-std=c++20": "c++20",
-            "-std=c++23": "c++23",
-            "-std=c++2b": "c++23",
-            "-std=c++26": "c++26",
-            "-std=c++2c": "c++26",
-            "-std=gnu++14": "gnu++14",
-            "-std=gnu++17": "gnu++17",
-            "-std=gnu++20": "gnu++20",
-            "-std=gnu++23": "gnu++23",
-            "-std=gnu++2b": "gnu++23",
-            "-std=gnu++26": "gnu++26",
-            "-std=gnu++2c": "gnu++26",
-        },
-    ),
-    # C language standard
-    XcodeSetting(
-        "GCC_C_LANGUAGE_STANDARD",
-        "c17",
-        {
-            "-std=c11": "c11",
-            "-std=c17": "c17",
-            "-std=gnu11": "gnu11",
-            "-std=gnu17": "gnu17",
-        },
-    ),
-]
-
-# Build lookup table: flag -> (setting_name, value)
-_FLAG_LOOKUP: Dict[str, Tuple[str, SettingValue]] = {
-    flag: (setting.name, value)
-    for setting in XCODE_SETTINGS
-    for flag, value in setting.choices.items()
-}
-
-
-def parse_compiler_flags(
-    flags: List[str],
-) -> Tuple[Dict[str, SettingValue], List[str]]:
-    settings: Dict[str, SettingValue] = {}
-    remaining: List[str] = []
-
-    for flag in flags:
-        if flag in _FLAG_LOOKUP:
-            name, value = _FLAG_LOOKUP[flag]
-            settings[name] = value
-        else:
-            # Unknown flags pass through to OTHER_CFLAGS
-            remaining.append(flag)
-
-    return settings, remaining
 
 
 @dataclass(frozen=True)
@@ -871,9 +532,11 @@ def create_xcode_project(project_info: ProjectInfo) -> XcodeProject:
                 "AD_HOC_CODE_SIGNING_ALLOWED": BuildSetting(value=YesNo.NO),
             }
         )
-        # Apply defaults from settings table (prevents Xcode from injecting its own flags)
-        for setting in XCODE_SETTINGS:
-            settings[setting.name] = BuildSetting(value=setting.default)
+        # Xcode defaults this to $(OTHER_CFLAGS); C++ gets only cxx_flags
+        settings["OTHER_CPLUSPLUSFLAGS"] = BuildSetting(value=[])
+        # Defaults that keep Xcode from adding compiler flags of its own
+        for name, value in project_settings().items():
+            settings[name] = BuildSetting(value=value)
         project_configs.append(
             XCBuildConfiguration(
                 name=str(build_cfg),
@@ -1268,7 +931,13 @@ def _emit_other_ldflags(
     for variant in _build_variants(platform, project_info, build_cfg):
         flags: List[str] = []
         if link_flags:
-            flags.extend(resolve_conditionals(variant.config, link_flags))
+            # Known link flags become Xcode settings; the rest pass through
+            mapped, user_flags = parse(
+                LINKER_FLAGS, resolve_conditionals(variant.config, link_flags)
+            )
+            for name, value in mapped.items():
+                settings[f"{name}[{variant.selector}]"] = BuildSetting(value=value)
+            flags.extend(user_flags)
         for dep_ti in dep_targets:
             dep_dir = _variant_product_dir(variant, dep_ti, build_cfg, symroot_rel)
             filename = os.path.basename(
@@ -1277,6 +946,23 @@ def _emit_other_ldflags(
             flags.append(f"$(SRCROOT)/{os.path.join(dep_dir, filename)}")
         if flags:
             settings[f"OTHER_LDFLAGS[{variant.selector}]"] = BuildSetting(value=flags)
+
+
+# Write flag-mapped settings: list values extend the target's per-arch list (after
+# Builderer's own values, e.g. include paths and defines); single values replace.
+def _apply_mapped_settings(
+    settings: Dict[str, BuildSetting],
+    mapped: Dict[str, Union[SettingValue, List[str]]],
+    arch: str,
+) -> None:
+    for name, value in mapped.items():
+        if isinstance(value, list):
+            key = f"{name}[arch={arch}]"
+            existing = settings[key].value if key in settings else []
+            assert isinstance(existing, list)
+            settings[key] = BuildSetting(value=existing + value)
+        else:
+            settings[name] = BuildSetting(value=value)
 
 
 def _infoplist_scalar(value) -> SettingValue:
@@ -1667,47 +1353,6 @@ def create_target(
                     else []
                 )
 
-                # Move -mmacosx-version-min=X into MACOSX_DEPLOYMENT_TARGET to prevent Xcode override warnings
-                def extract_macos_min(
-                    flags: List[str],
-                ) -> Tuple[List[str], Optional[str]]:
-                    min_ver: Optional[str] = None
-                    kept: List[str] = []
-                    for f in flags:
-                        if f.startswith("-mmacosx-version-min="):
-                            min_ver = f.split("=", 1)[1]
-                        else:
-                            kept.append(f)
-                    return kept, min_ver
-
-                c_flags, min_c = extract_macos_min(c_flags)
-                cxx_flags, min_cxx = extract_macos_min(cxx_flags)
-                min_ver = min_c or min_cxx
-                if min_ver:
-                    settings["MACOSX_DEPLOYMENT_TARGET"] = BuildSetting(value=min_ver)
-
-                # Parse known flags into Xcode settings, pass unknown flags through
-                # Combine c_flags and cxx_flags for settings extraction
-                all_flags = c_flags + cxx_flags
-                parsed_settings, _ = parse_compiler_flags(all_flags)
-                for setting_name, setting_value in parsed_settings.items():
-                    # Only set once (not per-arch) for language standards, etc.
-                    if setting_name not in settings:
-                        settings[setting_name] = BuildSetting(value=setting_value)
-
-                # Unknown flags pass through to OTHER_CFLAGS/OTHER_CPLUSPLUSFLAGS
-                _, c_remaining = parse_compiler_flags(c_flags)
-                _, cxx_remaining = parse_compiler_flags(cxx_flags)
-
-                if c_remaining:
-                    settings[f"OTHER_CFLAGS[arch={arch}]"] = BuildSetting(
-                        value=c_remaining
-                    )
-                if cxx_remaining:
-                    settings[f"OTHER_CPLUSPLUSFLAGS[arch={arch}]"] = BuildSetting(
-                        value=cxx_remaining
-                    )
-
                 # Add preprocessor defines
                 defines: List[str] = []
                 # Target's own defines
@@ -1751,6 +1396,20 @@ def create_target(
                         BuildSetting(value=ordered_defs)
                     )
 
+                # Known flags become Xcode settings; the rest pass through
+                mapped, _ = parse(CLANG_FLAGS, c_flags + cxx_flags)
+                _apply_mapped_settings(settings, mapped, arch)
+                _, c_remaining = parse(CLANG_FLAGS, c_flags)
+                _, cxx_remaining = parse(CLANG_FLAGS, cxx_flags)
+                if c_remaining:
+                    settings[f"OTHER_CFLAGS[arch={arch}]"] = BuildSetting(
+                        value=c_remaining
+                    )
+                if cxx_remaining:
+                    settings[f"OTHER_CPLUSPLUSFLAGS[arch={arch}]"] = BuildSetting(
+                        value=cxx_remaining
+                    )
+
                 # Add linker flags for executable targets. _emit_other_ldflags
                 # enumerates all build variants itself (per-arch on macOS, per-SDK
                 # on iOS), so it is variant-complete; the single-arch invariant
@@ -1790,12 +1449,16 @@ def create_target(
             elif isinstance(effective_target, (SwiftBinary, SwiftLibrary)):
                 swift_target = effective_target
 
-                # Pass user-provided swift flags through to swiftc
-                user_swift_flags = list(
-                    str_iter(
-                        resolve_conditionals(arch_config, swift_target.swift_flags)
-                    )
+                # Known swift flags become Xcode settings; the rest pass through
+                mapped, user_swift_flags = parse(
+                    SWIFT_FLAGS,
+                    list(
+                        str_iter(
+                            resolve_conditionals(arch_config, swift_target.swift_flags)
+                        )
+                    ),
                 )
+                _apply_mapped_settings(settings, mapped, arch)
 
                 # For every swift_cc_module in transitive deps, pass its modulemap to
                 # swiftc's embedded clang. The cc_library include paths come via
