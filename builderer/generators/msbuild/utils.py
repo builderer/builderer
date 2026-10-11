@@ -21,6 +21,7 @@ def msvc_file_rule(path: Path) -> str:
         ".hxx",
         ".inl",
         ".inc",
+        ".def",
         ".tc",
         ".th",
         "",  # empty suffix are std-style headers, e.g. Eigen
