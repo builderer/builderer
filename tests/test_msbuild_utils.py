@@ -11,7 +11,17 @@ class TestMsvcFileRule(unittest.TestCase):
                 self.assertEqual(msvc_file_rule(Path(name)), "ClCompile")
 
     def test_msvc_file_rule_classifies_headers_as_include(self):
-        for name in ["a.h", "a.hpp", "a.hxx", "a.inl", "a.inc", "a.tc", "a.th"]:
+        for name in [
+            "a.h",
+            "a.hpp",
+            "a.hxx",
+            "a.inl",
+            "a.inc",
+            "a.def",
+            "A.DEF",
+            "a.tc",
+            "a.th",
+        ]:
             with self.subTest(name=name):
                 self.assertEqual(msvc_file_rule(Path(name)), "ClInclude")
 
