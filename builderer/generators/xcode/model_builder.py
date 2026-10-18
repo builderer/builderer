@@ -9,6 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple, Union
 import os
+import posixpath
 from collections import defaultdict
 from dataclasses import dataclass
 
@@ -380,16 +381,16 @@ def get_target_include_paths(
         for inc in str_iter(
             resolve_conditionals(config, target_info.target.public_includes)
         ):
-            includes.append(os.path.normpath(inc))
+            includes.append(Path(os.path.normpath(inc)).as_posix())
         for inc in str_iter(
             resolve_conditionals(config, target_info.target.private_includes)
         ):
-            includes.append(os.path.normpath(inc))
+            includes.append(Path(os.path.normpath(inc)).as_posix())
     elif isinstance(target_info.target, CCBinary):
         for inc in str_iter(
             resolve_conditionals(config, target_info.target.private_includes)
         ):
-            includes.append(os.path.normpath(inc))
+            includes.append(Path(os.path.normpath(inc)).as_posix())
     elif isinstance(target_info.target, AppleApplication):
         _, dep_binary = target_info.target.resolve_binary_target(
             project_info.workspace, target_info.package
@@ -398,7 +399,7 @@ def get_target_include_paths(
             for inc in str_iter(
                 resolve_conditionals(config, dep_binary.private_includes)
             ):
-                includes.append(os.path.normpath(inc))
+                includes.append(Path(os.path.normpath(inc)).as_posix())
         # SwiftBinary has no *_includes fields; Swift gets clang search paths via -Xcc.
     elif isinstance(target_info.target, (SwiftBinary, SwiftLibrary)):
         # Swift targets have no *_includes of their own; transitive cc deps
@@ -419,7 +420,7 @@ def get_target_include_paths(
             for inc in str_iter(
                 resolve_conditionals(config, dep_target.public_includes)
             ):
-                includes.append(os.path.normpath(inc))
+                includes.append(Path(os.path.normpath(inc)).as_posix())
 
     # Deduplicate while preserving order
     seen: set[str] = set()
@@ -457,8 +458,8 @@ def build_package_group_hierarchy(
             if parent != Path(".") and parent != Path():
                 all_paths.add(parent)
     # Sort paths by depth (parents before children), then alphabetically for determinism
-    sorted_paths = sorted(all_paths, key=lambda p: (len(p.parts), str(p)))
-    # Create groups for each path
+    sorted_paths = sorted(all_paths, key=lambda p: (len(p.parts), p.as_posix()))
+    # Create groups for each path, keyed by POSIX path like package names
     path_to_group: Dict[str, PBXGroup] = {}
     all_groups: List[PBXGroup] = []
     for path in sorted_paths:
@@ -466,14 +467,18 @@ def build_package_group_hierarchy(
             name=path.name,
             sourceTree=SourceTree.GROUP,
             children=[],
-            group_id=f"package:{path}",
+            group_id=f"package:{path.as_posix()}",
         )
-        path_to_group[str(path)] = group
+        path_to_group[path.as_posix()] = group
         all_groups.append(group)
         # Add to parent group if it exists
         parent = path.parent
-        if parent != Path(".") and parent != Path() and str(parent) in path_to_group:
-            parent_group = path_to_group[str(parent)]
+        if (
+            parent != Path(".")
+            and parent != Path()
+            and parent.as_posix() in path_to_group
+        ):
+            parent_group = path_to_group[parent.as_posix()]
             parent_group.children.append(Reference(group.id, path.name))
     return path_to_group, all_groups
 
@@ -500,10 +505,12 @@ def create_xcode_project(project_info: ProjectInfo) -> XcodeProject:
 
     # Compute custom build roots to avoid polluting workspace with default 'build'
     project_stem = Path(project_info.base_config.build_root).stem
-    build_root_dir = os.path.dirname(project_info.base_config.build_root)
+    build_root_dir = posixpath.dirname(
+        Path(project_info.base_config.build_root).as_posix()
+    )
     # Paths are relative to workspace root in Xcode (SRCROOT is workspace root)
-    objroot_rel = os.path.join(build_root_dir, ".xcode-obj", project_stem)
-    symroot_rel = os.path.join(build_root_dir, ".xcode-sym", project_stem)
+    objroot_rel = posixpath.join(build_root_dir, ".xcode-obj", project_stem)
+    symroot_rel = posixpath.join(build_root_dir, ".xcode-sym", project_stem)
 
     # SDKROOT selects the base SDK; Xcode forms the compiler target from it plus
     # ARCHS and the deployment target, so builderer never bakes a -target. For
@@ -555,7 +562,9 @@ def create_xcode_project(project_info: ProjectInfo) -> XcodeProject:
     xcodeproj_dir = os.path.dirname(
         os.path.join(project_info.workspace_root, project_info.base_config.build_root)
     )
-    project_dir_path = os.path.relpath(str(project_info.workspace_root), xcodeproj_dir)
+    project_dir_path = Path(
+        os.path.relpath(str(project_info.workspace_root), xcodeproj_dir)
+    ).as_posix()
 
     # Create project
     project = PBXProject(
@@ -828,10 +837,10 @@ def _variant_product_dir(
     symroot_rel: str,
 ) -> str:
     if variant.is_deployable:
-        return os.path.dirname(
+        return posixpath.dirname(
             get_target_output_path(target_info, variant.config, symroot_rel)
         )
-    return os.path.join(
+    return posixpath.join(
         symroot_rel, f"{variant.dir_tag}-{build_cfg}", target_info.package.name
     )
 
@@ -856,8 +865,8 @@ def _build_dir_settings(
         # Separate intermediates per variant (SDK).
         for variant in variants:
             cond = f"[{variant.selector}]"
-            obj = os.path.join(objroot_rel, f"{variant.dir_tag}-{build_cfg}")
-            sym = os.path.join(symroot_rel, f"{variant.dir_tag}-{build_cfg}")
+            obj = posixpath.join(objroot_rel, f"{variant.dir_tag}-{build_cfg}")
+            sym = posixpath.join(symroot_rel, f"{variant.dir_tag}-{build_cfg}")
             settings[f"OBJROOT{cond}"] = BuildSetting(value=f"$(SRCROOT)/{obj}")
             settings[f"SYMROOT{cond}"] = BuildSetting(value=f"$(SRCROOT)/{sym}")
     else:
@@ -940,10 +949,10 @@ def _emit_other_ldflags(
             flags.extend(user_flags)
         for dep_ti in dep_targets:
             dep_dir = _variant_product_dir(variant, dep_ti, build_cfg, symroot_rel)
-            filename = os.path.basename(
+            filename = posixpath.basename(
                 get_target_output_path(dep_ti, variant.config, symroot_rel)
             )
-            flags.append(f"$(SRCROOT)/{os.path.join(dep_dir, filename)}")
+            flags.append(f"$(SRCROOT)/{posixpath.join(dep_dir, filename)}")
         if flags:
             settings[f"OTHER_LDFLAGS[{variant.selector}]"] = BuildSetting(value=flags)
 
@@ -1105,7 +1114,9 @@ def create_target(
     # Only include this target's own sources (not dependencies)
     for src in target_info.sources:
         # Make paths relative to workspace root
-        src_path = os.path.relpath(src, str(project_info.workspace_root))
+        src_path = Path(
+            os.path.relpath(src, str(project_info.workspace_root))
+        ).as_posix()
         _, ext = os.path.splitext(src.lower())
 
         # Check if file reference already exists
@@ -1135,7 +1146,9 @@ def create_target(
     # Create file references for headers (for IDE navigation only, not built)
     for hdr in target_info.headers:
         # Make paths relative to workspace root
-        hdr_path = os.path.relpath(hdr, str(project_info.workspace_root))
+        hdr_path = Path(
+            os.path.relpath(hdr, str(project_info.workspace_root))
+        ).as_posix()
 
         # Check if file reference already exists
         if hdr_path not in file_ref_registry:
@@ -1158,7 +1171,9 @@ def create_target(
     resource_build_files: List[PBXBuildFile] = []
     resource_copy_files: Dict[str, List[PBXBuildFile]] = defaultdict(list)
     for src, dst in target_info.resources:
-        resource_path = os.path.relpath(src, str(project_info.workspace_root))
+        resource_path = Path(
+            os.path.relpath(src, str(project_info.workspace_root))
+        ).as_posix()
         _, ext = os.path.splitext(src.lower())
         if resource_path not in file_ref_registry:
             file_ref = PBXFileReference(
@@ -1171,7 +1186,7 @@ def create_target(
         else:
             file_ref = file_ref_registry[resource_path]
         resources_group.children.append(Reference(file_ref.id))
-        subdir = os.path.dirname(dst)
+        subdir = posixpath.dirname(dst)
         build_file = PBXBuildFile(
             fileRef=Reference(file_ref.id),
             name=os.path.basename(src),
@@ -1248,9 +1263,11 @@ def create_target(
 
     # Compute per-project build roots to keep intermediates out of workspace root
     project_stem = Path(project_info.base_config.build_root).stem
-    build_root_dir = os.path.dirname(project_info.base_config.build_root)
-    objroot_rel = os.path.join(build_root_dir, ".xcode-obj", project_stem)
-    symroot_rel = os.path.join(build_root_dir, ".xcode-sym", project_stem)
+    build_root_dir = posixpath.dirname(
+        Path(project_info.base_config.build_root).as_posix()
+    )
+    objroot_rel = posixpath.join(build_root_dir, ".xcode-obj", project_stem)
+    symroot_rel = posixpath.join(build_root_dir, ".xcode-sym", project_stem)
 
     # Resolve the effective compile target once. For AppleApplication, this is the
     # wrapped binary (so the .app's compile/link settings match the binary it wraps).
@@ -1469,9 +1486,11 @@ def create_target(
                 ):
                     if isinstance(dep_target, SwiftCcModule):
                         for modmap_abs in dep_target.module_maps:
-                            modmap_rel = os.path.relpath(
-                                modmap_abs, str(project_info.workspace_root)
-                            )
+                            modmap_rel = Path(
+                                os.path.relpath(
+                                    modmap_abs, str(project_info.workspace_root)
+                                )
+                            ).as_posix()
                             xcc_flags += [
                                 "-Xcc",
                                 f"-fmodule-map-file=$(SRCROOT)/{modmap_rel}",

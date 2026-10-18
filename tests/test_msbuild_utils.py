@@ -1,7 +1,16 @@
 import unittest
 from pathlib import Path
 
-from builderer.generators.msbuild.utils import msvc_file_rule
+from builderer.generators.msbuild.utils import msbuild_escape, msvc_file_rule
+
+
+class TestMsbuildEscape(unittest.TestCase):
+    def test_msbuild_escape_escapes_special_characters(self):
+        self.assertEqual(msbuild_escape("%$@';?*"), "%25%24%40%27%3B%3F%2A")
+
+    def test_msbuild_escape_keeps_other_characters(self):
+        value = "..\\Out dir\\my-app_1.0 (x64)!#&+,=[]{}~"
+        self.assertEqual(msbuild_escape(value), value)
 
 
 class TestMsvcFileRule(unittest.TestCase):

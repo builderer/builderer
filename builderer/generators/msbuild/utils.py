@@ -8,6 +8,18 @@ def as_msft_path(path: Union[str, Path]) -> str:
     return str(PureWindowsPath(path))
 
 
+# MSBuild reads these characters as syntax (property, item and metadata
+# references, list separators, wildcards, condition quotes). %XX makes them
+# literal; MSBuild unescapes values before passing them to tools.
+MSBUILD_SPECIAL_CHARACTERS = "%$@';?*"
+
+
+def msbuild_escape(value: str) -> str:
+    return "".join(
+        f"%{ord(c):02X}" if c in MSBUILD_SPECIAL_CHARACTERS else c for c in value
+    )
+
+
 def make_guid(key: str) -> str:
     return f"{{{uuid.uuid5(uuid.NAMESPACE_X500, key)}}}".upper()
 

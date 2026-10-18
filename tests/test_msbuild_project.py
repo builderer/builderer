@@ -8,6 +8,7 @@ file classification code paths -- not just the mapping tables.
 import unittest
 from xml.dom.minidom import Document
 
+from builderer import Case, Condition, Switch
 from builderer.generators.msbuild.project import MsBuildProject
 from builderer.generators.msbuild.version import VS_VERSIONS
 
@@ -37,8 +38,20 @@ def _includes(doc, tag):
     ]
 
 
-def _render(target, package, workspace, version=VS2022):
-    proj = MsBuildProject(make_config(), workspace, package, target, version)
+def _output_names(doc):
+    # (Condition, TargetName, TargetExt) of each output naming group
+    return [
+        (
+            xname.parentNode.getAttribute("Condition"),
+            _texts(xname.parentNode, "TargetName")[0],
+            _texts(xname.parentNode, "TargetExt")[0],
+        )
+        for xname in doc.getElementsByTagName("TargetName")
+    ]
+
+
+def _render(target, package, workspace, version=VS2022, config=None):
+    proj = MsBuildProject(config or make_config(), workspace, package, target, version)
     doc = Document()
     proj._append_project(doc)
     return doc
@@ -242,3 +255,90 @@ class TestDependencyPropagation(unittest.TestCase):
         doc = _render(mid, pkg, make_workspace([pkg]))
         self.assertIn("deepinc", ";".join(_texts(doc, "AdditionalIncludeDirectories")))
         self.assertIn("DEEP", ";".join(_texts(doc, "PreprocessorDefinitions")))
+
+
+DEBUG_X64 = "'$(Configuration)|$(Platform)'=='debug|x64'"
+RELEASE_X64 = "'$(Configuration)|$(Platform)'=='release|x64'"
+
+
+class TestOutputNaming(unittest.TestCase):
+    def test_default_output_name_is_target_name(self):
+        for target, name, ext in [
+            (make_cc_binary("app", srcs=["pkg/main.cpp"]), "app", ".exe"),
+            (make_cc_library("lib", srcs=["pkg/a.cpp"]), "lib", ".lib"),
+        ]:
+            with self.subTest(target=target.name):
+                self.assertEqual(
+                    _output_names(_render_single(target)), [(DEBUG_X64, name, ext)]
+                )
+
+    def test_output_path_file_name_names_the_output(self):
+        # Regression: only OutDir came from output_path, so MSBuild named the file
+        # after the project and it never reached the declared artifact path.
+        for make_target, output_path, name, ext in [
+            (make_cc_binary, "Out/bin/Tool.exe", "Tool", ".exe"),
+            (make_cc_binary, "Out/bin/my.tool.exe", "my.tool", ".exe"),
+            (make_cc_binary, "Out/bin/tool", "tool", ""),
+            (make_cc_library, "Out/lib/Custom.lib", "Custom", ".lib"),
+        ]:
+            with self.subTest(output_path=output_path):
+                target = make_target(
+                    "target", srcs=["pkg/a.cpp"], output_path=output_path
+                )
+                self.assertEqual(
+                    _output_names(_render_single(target)), [(DEBUG_X64, name, ext)]
+                )
+
+    def test_output_path_special_characters_are_escaped(self):
+        app = make_cc_binary(
+            "app", srcs=["pkg/main.cpp"], output_path="Out/a$(b)/c%d;e@f'g.exe"
+        )
+        doc = _render_single(app)
+        self.assertEqual(
+            _texts(doc, "OutDir"), ["$(ProjectDir)\\..\\..\\..\\a%24(b)\\"]
+        )
+        self.assertEqual(_output_names(doc), [(DEBUG_X64, "c%25d%3Be%40f%27g", ".exe")])
+
+    def test_output_name_resolves_per_configuration(self):
+        app = make_cc_binary(
+            "app",
+            srcs=["pkg/main.cpp"],
+            output_path=Switch(
+                Case(Condition(build_config="debug"), "Out/debug/AppD.exe"),
+                Case(Condition(build_config="release"), "Out/release/App.exe"),
+            ),
+        )
+        pkg = make_package("pkg", [app])
+        doc = _render(
+            app,
+            pkg,
+            make_workspace([pkg]),
+            config=make_config(build_config=["debug", "release"]),
+        )
+        self.assertEqual(
+            _output_names(doc),
+            [(DEBUG_X64, "AppD", ".exe"), (RELEASE_X64, "App", ".exe")],
+        )
+
+    def test_output_name_follows_cpp_props(self):
+        # Microsoft.Cpp.props assigns TargetExt unconditionally, overwriting any
+        # value set before it is imported.
+        doc = _render_single(make_cc_binary("app", srcs=["pkg/main.cpp"]))
+        children = [
+            n for n in doc.documentElement.childNodes if n.nodeType == n.ELEMENT_NODE
+        ]
+        cpp_props = next(
+            i
+            for i, n in enumerate(children)
+            if n.tagName == "Import"
+            and n.getAttribute("Project").endswith("\\Microsoft.Cpp.props")
+        )
+        output_names = [
+            i for i, n in enumerate(children) if n.getElementsByTagName("TargetExt")
+        ]
+        self.assertTrue(output_names)
+        self.assertTrue(all(cpp_props < i for i in output_names))
+
+    def test_header_only_library_has_no_output_name(self):
+        hdr = make_cc_library("hdronly", hdrs=["pkg/a.h"])
+        self.assertEqual(_output_names(_render_single(hdr)), [])

@@ -65,6 +65,33 @@ class TestXcodeGenerator(unittest.TestCase):
         self.assertTrue(any(p.endswith("lib.cpp") for p in paths))
         self.assertTrue(any(p.endswith("main.cpp") for p in paths))
 
+    def test_project_paths_are_posix_on_any_host(self):
+        # Xcode reads POSIX paths, so a project generated on Windows must not carry
+        # host separators, and a nested package's group must still nest.
+        lib = make_cc_library(
+            "mylib",
+            workspace_root="pkg/sub",
+            srcs=["pkg/sub/lib.cpp"],
+            hdrs=["pkg/sub/lib.h"],
+            public_includes=["pkg/sub/inc"],
+        )
+        app = make_cc_binary(
+            "app", workspace_root="pkg/sub", srcs=["pkg/sub/main.cpp"], deps=[":mylib"]
+        )
+        pkg = make_package("pkg/sub", [lib, app])
+        config = make_config(
+            buildtool="xcode",
+            toolchain="clang",
+            platform="macos",
+            build_root="Out/build/macos.xcodeproj",
+            architecture=["arm64"],
+            build_config=["debug"],
+        )
+        proj = generate_xcode_project(config, make_workspace([pkg]))
+        self.assertNotIn("\\", format_xcode_project(proj))
+        sub = next(g for g in proj.groups if g.name == "sub")
+        self.assertEqual({c.comment for c in sub.children}, {"mylib", "app"})
+
     def test_formatter_emits_pbxproj_skeleton(self):
         text = format_xcode_project(_project())
         self.assertTrue(text.startswith("// !$*UTF8*$!"))

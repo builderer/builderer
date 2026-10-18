@@ -25,6 +25,7 @@ from builderer.generators.msbuild.settings import (
 from builderer.generators.msbuild.utils import (
     as_msft_path,
     make_guid,
+    msbuild_escape,
     msvc_file_rule,
 )
 from builderer.generators.msbuild.version import VisualStudioVersion
@@ -282,7 +283,9 @@ class MsBuildProject:
         out_path = as_msft_path(
             os.path.relpath(artifact_subpath.parent, self.project_root)
         )
-        append_text_element(xgroup, "OutDir", f"$(ProjectDir)\\{out_path}\\")
+        append_text_element(
+            xgroup, "OutDir", f"$(ProjectDir)\\{msbuild_escape(out_path)}\\"
+        )
         append_text_element(
             xgroup,
             "IntDir",
@@ -305,6 +308,26 @@ class MsBuildProject:
             "exists('$(UserRootDir)\\Microsoft.Cpp.$(Platform).user.props')",
         )
         xprop.setAttribute("Label", "LocalAppDataPlatform")
+
+    def _append_output_properties(self, xparent: ParentNode, config: Config):
+        # MSBuild writes $(OutDir)$(TargetName)$(TargetExt); name it after the
+        # artifact path so it lands exactly where the artifact is expected. This
+        # group must follow Microsoft.Cpp.props, which assigns TargetExt from
+        # ConfigurationType unconditionally.
+        if not self.configuration_type:
+            return
+        artifact_subpath = get_target_artifact_subpath(
+            config=config, package_name=self.package.name, target=self.target
+        )
+        xgroup = append_element(xparent, "PropertyGroup")
+        xgroup.setAttribute(
+            "Condition",
+            f"'$(Configuration)|$(Platform)'=='{config.build_config}|{config.architecture}'",
+        )
+        append_text_element(xgroup, "TargetName", msbuild_escape(artifact_subpath.stem))
+        append_text_element(
+            xgroup, "TargetExt", msbuild_escape(artifact_subpath.suffix)
+        )
 
     def _append_config_definition_group(self, xparent: ParentNode, config: Config):
         xgroup = append_element(xparent, "ItemDefinitionGroup")
@@ -463,6 +486,9 @@ class MsBuildProject:
         # TODO: is this needed?
         for config in self.build_configs:
             self._append_local_app_data_platform(xproj, config=config)
+        # Output file name
+        for config in self.build_configs:
+            self._append_output_properties(xproj, config=config)
         # Link properties MSBuild reads at project level
         if self.requires_linking:
             for config in self.build_configs:
