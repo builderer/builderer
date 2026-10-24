@@ -143,13 +143,12 @@ class TestSubsystemSeams(unittest.TestCase):
             build_config="debug",
             build_root="Out/build/linux",
         )
-        buf = io.StringIO()
-        TargetMk(
+        rules = TargetMk(
             cfg, make_workspace([pkg]), Path("Out/build/linux"), pkg, app
-        )._write_makefile(buf)
+        ).rules_text()
         link_line = next(
             line
-            for line in buf.getvalue().splitlines()
+            for line in rules.splitlines()
             if "libhigh.a" in line and "liblow.a" in line
         )
         self.assertLess(link_line.index("libhigh.a"), link_line.index("liblow.a"))
@@ -180,9 +179,7 @@ class TestCombinatorialSweeps(unittest.TestCase):
                     build_config="debug",
                     build_root="b",
                 )
-                buf = io.StringIO()
-                TargetMk(cfg, ws, Path("b"), pkg, app)._write_makefile(buf)
-                mk = buf.getvalue()
+                mk = TargetMk(cfg, ws, Path("b"), pkg, app).rules_text()
                 self.assertIn("$(CCLD)", mk)  # the binary link rule is emitted
                 self.assertIn("libmylib.a", mk)  # ...and links the dependency's archive
 

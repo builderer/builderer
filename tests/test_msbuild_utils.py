@@ -22,6 +22,7 @@ class TestMsvcFileRule(unittest.TestCase):
     def test_msvc_file_rule_classifies_headers_as_include(self):
         for name in [
             "a.h",
+            "a.hh",
             "a.hpp",
             "a.hxx",
             "a.inl",
@@ -41,3 +42,10 @@ class TestMsvcFileRule(unittest.TestCase):
     def test_msvc_file_rule_rejects_unknown_extension(self):
         with self.assertRaisesRegex(ValueError, "Unsupported file extension"):
             msvc_file_rule(Path("a.txt"))
+
+    def test_msvc_file_rule_rejects_sources_msvc_does_not_compile(self):
+        # Objective-C, GNU assembly, Swift and Metal have no MSVC compile rule
+        for name in ["a.m", "a.mm", "a.s", "a.swift", "a.metal"]:
+            with self.subTest(name=name):
+                with self.assertRaisesRegex(ValueError, "Unsupported file extension"):
+                    msvc_file_rule(Path(name))

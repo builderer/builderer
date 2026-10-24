@@ -1,6 +1,5 @@
 """Behavioral tests for the Makefile emitter (rendered to a StringIO, no disk)."""
 
-import io
 import unittest
 from pathlib import Path
 
@@ -28,11 +27,10 @@ def _make_config(**over):
     )
 
 
+# A target's generated make text: its rules.mk followed by its options.mk
 def _makefile(target, package, workspace, config):
     tm = TargetMk(config, workspace, Path(config.build_root), package, target)
-    buf = io.StringIO()
-    tm._write_makefile(buf)
-    return buf.getvalue()
+    return tm.rules_text() + (tm.options_text() or "")
 
 
 def _single(target, config=None):
@@ -57,6 +55,26 @@ class TestTargetMk(unittest.TestCase):
         mk = _single(make_cc_library("lib", srcs=["pkg/a.cpp"]))
         self.assertIn("$(AR) rcS", mk)
         self.assertIn("pkg@lib:", mk)
+
+    def test_nested_package_uses_the_flat_target_name(self):
+        lib = make_cc_library("lib", workspace_root="a/b", srcs=["a/b/x.cpp"])
+        pkg = make_package("a/b", [lib])
+        mk = _makefile(lib, pkg, make_workspace([pkg]), _make_config())
+        self.assertIn("a.b@lib:", mk)
+        self.assertIn("OBJS__a.b@lib", mk)
+
+    def test_variable_names_stay_distinct_for_lookalike_packages(self):
+        # "a_b" and "a/b" both used to become "__a_b__" in variable names
+        mks = []
+        for package_name in ("a_b", "a/b"):
+            lib = make_cc_library(
+                "lib", workspace_root=package_name, srcs=[f"{package_name}/x.cpp"]
+            )
+            pkg = make_package(package_name, [lib])
+            mks.append(_makefile(lib, pkg, make_workspace([pkg]), _make_config()))
+        self.assertIn("OBJS__a_b@lib", mks[0])
+        self.assertIn("OBJS__a.b@lib", mks[1])
+        self.assertNotIn("OBJS__a_b@lib", mks[1])
 
     def test_binary_with_library_dependency_links_and_inherits_settings(self):
         lib = make_cc_library(

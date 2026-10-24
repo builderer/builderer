@@ -3,6 +3,8 @@ import uuid
 from pathlib import Path, PureWindowsPath
 from typing import Union
 
+from builderer.details.file_types import FileKind, file_kind
+
 
 def as_msft_path(path: Union[str, Path]) -> str:
     return str(PureWindowsPath(path))
@@ -25,19 +27,10 @@ def make_guid(key: str) -> str:
 
 
 def msvc_file_rule(path: Path) -> str:
-    if path.suffix.lower() in [".cpp", ".cc", ".cxx", ".c"]:
+    kind = file_kind(path)
+    if kind in (FileKind.C, FileKind.CXX):
         return "ClCompile"
-    elif path.suffix.lower() in [
-        ".h",
-        ".hpp",
-        ".hxx",
-        ".inl",
-        ".inc",
-        ".def",
-        ".tc",
-        ".th",
-        "",  # empty suffix are std-style headers, e.g. Eigen
-    ]:
+    elif kind is FileKind.HEADER:
         return "ClInclude"
     else:
         raise ValueError(f"Unsupported file extension for {path}")

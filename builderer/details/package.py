@@ -1,6 +1,7 @@
 from pathlib import Path
 from typing import Dict, Type
 
+from builderer.details.naming import validate_target_name
 from builderer.details.targets.apple_application import AppleApplication
 from builderer.details.targets.cc_binary import CCBinary
 from builderer.details.targets.cc_library import CCLibrary
@@ -62,6 +63,7 @@ class Package:
 
     def add_target(self, target_type: Type[Target], **kwargs):
         target = target_type(**kwargs, workspace_root=self.root.as_posix())
+        validate_target_name(target.name)
         if target.name in self.targets:
             raise ValueError(
                 f"target with name='{target.name}' already exists in package='{self.name}'"

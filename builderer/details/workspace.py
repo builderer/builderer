@@ -13,6 +13,10 @@ from builderer import Config
 from builderer.conditional import ConditionalValue
 from builderer.details.context import ConfigContext, RulesContext, BuildContext
 from builderer.details.glob_filter import glob_with_exclusions
+from builderer.details.naming import (
+    check_package_name_conflicts,
+    check_target_package_aliasing,
+)
 from builderer.details.package import Package
 from builderer.details.targets.target import Target, BuildTarget
 from builderer.details.variable_expansion import resolve_conditionals, resolve_variables
@@ -128,6 +132,10 @@ class Workspace:
             for ctx in load_recursive_contexts(self.root, BuildContext)
             for pkg in ctx.packages.values()
         }
+        check_package_name_conflicts(self.packages)
+        check_target_package_aliasing(
+            {name: pkg.targets for name, pkg in self.packages.items()}
+        )
         # Initialize empty graph, won't be able to fill it in until conditionals are expanded
         self._graph: dict[tuple[Package, Target], list[tuple[Package, Target]]] = {}
 

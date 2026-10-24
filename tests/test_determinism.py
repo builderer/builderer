@@ -5,7 +5,7 @@ so dict-ordering or hash-seed differences across interpreters surface as failure
 import unittest
 
 from builderer.generators.msbuild.utils import make_guid
-from builderer.generators.make.target_mk import _plist_dict_to_xml_text
+from builderer.details.plist_xml import plist_dict_to_xml_text
 
 
 class TestDeterminism(unittest.TestCase):
@@ -18,10 +18,10 @@ class TestDeterminism(unittest.TestCase):
         )
 
     def test_plist_xml_is_independent_of_key_insertion_order(self):
-        a = _plist_dict_to_xml_text(
+        a = plist_dict_to_xml_text(
             {"CFBundleName": "D", "CFBundleVersion": "1", "X": "y"}
         )
-        b = _plist_dict_to_xml_text(
+        b = plist_dict_to_xml_text(
             {"X": "y", "CFBundleVersion": "1", "CFBundleName": "D"}
         )
         self.assertEqual(a, b)

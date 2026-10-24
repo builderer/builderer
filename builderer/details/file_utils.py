@@ -17,3 +17,15 @@ def rename_with_retry(src: Path, dst: Path, attempts: int = 3):
                 continue
             else:
                 raise
+
+
+# Leaves the file untouched when it already holds exactly this text, so tools
+# watching generated files (e.g. Xcode) don't see a spurious modification.
+def write_text_if_changed(path: Path, text: str):
+    try:
+        if path.read_text(encoding="utf-8") == text:
+            return
+    except FileNotFoundError:
+        pass
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")

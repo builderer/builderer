@@ -14,7 +14,9 @@ from collections import defaultdict
 from dataclasses import dataclass
 
 from builderer import Config
+from builderer.details.file_types import C_FAMILY_KINDS, FileKind, file_kind
 from builderer.details.target_artifact import (
+    artifact_root,
     get_target_artifact_subpath,
     get_target_artifact_filename,
 )
@@ -152,25 +154,9 @@ APPLE_PLATFORMS: Dict[str, ApplePlatform] = {
     "ios": IOS,
 }
 
-# Extensions that Xcode can compile (add to sources build phase)
-COMPILABLE_EXTENSIONS = frozenset(
-    {
-        # C/C++
-        ".c",
-        ".cc",
-        ".cpp",
-        ".cxx",
-        # Objective-C/C++
-        ".m",
-        ".mm",
-        # Assembly
-        ".s",
-        # Swift
-        ".swift",
-        # Metal (Xcode's built-in rule compiles these into default.metallib)
-        ".metal",
-    }
-)
+# Kinds of sources Xcode compiles (added to the sources build phase). Metal uses
+# Xcode's built-in rule, which compiles them into default.metallib.
+COMPILED_KINDS = C_FAMILY_KINDS | {FileKind.SWIFT, FileKind.METAL}
 
 
 @dataclass(frozen=True)
@@ -239,7 +225,7 @@ class TargetInfo:
             # Determine product type and file type
             if isinstance(target, CCLibrary):
                 product_type = ProductType.STATIC_LIBRARY
-                file_type = FileType.EXECUTABLE  # Static libraries use EXECUTABLE type
+                file_type = FileType.ARCHIVE
             else:
                 product_type = ProductType.TOOL
                 file_type = FileType.EXECUTABLE
@@ -251,7 +237,7 @@ class TargetInfo:
             headers = []
             if isinstance(target, SwiftLibrary):
                 product_type = ProductType.STATIC_LIBRARY
-                file_type = FileType.EXECUTABLE
+                file_type = FileType.ARCHIVE
             else:
                 product_type = ProductType.TOOL
                 file_type = FileType.EXECUTABLE
@@ -432,6 +418,13 @@ def get_target_include_paths(
     return deduped
 
 
+# Xcode's OBJROOT/SYMROOT, relative to the workspace root. They sit beside the
+# config's artifacts so nothing is built inside the .xcodeproj bundle.
+def _xcode_build_dirs(config: Config) -> Tuple[str, str]:
+    root = artifact_root(config).as_posix()
+    return posixpath.join(root, ".obj"), posixpath.join(root, ".sym")
+
+
 def get_target_output_path(
     target_info: TargetInfo,
     config: Config,
@@ -503,14 +496,8 @@ def create_xcode_project(project_info: ProjectInfo) -> XcodeProject:
             group = package_groups[top_path]
             main_group.children.append(Reference(group.id, top_path))
 
-    # Compute custom build roots to avoid polluting workspace with default 'build'
-    project_stem = Path(project_info.base_config.build_root).stem
-    build_root_dir = posixpath.dirname(
-        Path(project_info.base_config.build_root).as_posix()
-    )
     # Paths are relative to workspace root in Xcode (SRCROOT is workspace root)
-    objroot_rel = posixpath.join(build_root_dir, ".xcode-obj", project_stem)
-    symroot_rel = posixpath.join(build_root_dir, ".xcode-sym", project_stem)
+    objroot_rel, symroot_rel = _xcode_build_dirs(project_info.base_config)
 
     # SDKROOT selects the base SDK; Xcode forms the compiler target from it plus
     # ARCHS and the deployment target, so builderer never bakes a -target. For
@@ -1117,7 +1104,6 @@ def create_target(
         src_path = Path(
             os.path.relpath(src, str(project_info.workspace_root))
         ).as_posix()
-        _, ext = os.path.splitext(src.lower())
 
         # Check if file reference already exists
         if src_path not in file_ref_registry:
@@ -1125,7 +1111,7 @@ def create_target(
                 name=os.path.basename(src),
                 path=src_path,
                 sourceTree=SourceTree.SOURCE_ROOT,
-                fileType=FileType.from_extension(ext),
+                lastKnownFileType=FileType.for_source(src),
             )
             file_ref_registry[src_path] = file_ref
         else:
@@ -1135,7 +1121,7 @@ def create_target(
         sources_group.children.append(Reference(file_ref.id))
 
         # Only add compilable files to the build phase
-        if ext in COMPILABLE_EXTENSIONS:
+        if file_kind(src) in COMPILED_KINDS:
             build_file = PBXBuildFile(
                 fileRef=Reference(file_ref.id),
                 name=os.path.basename(src),
@@ -1156,7 +1142,7 @@ def create_target(
                 name=os.path.basename(hdr),
                 path=hdr_path,
                 sourceTree=SourceTree.SOURCE_ROOT,
-                fileType=FileType.from_extension(os.path.splitext(hdr)[1]),
+                lastKnownFileType=FileType.for_source(hdr),
             )
             file_ref_registry[hdr_path] = file_ref
         else:
@@ -1174,13 +1160,12 @@ def create_target(
         resource_path = Path(
             os.path.relpath(src, str(project_info.workspace_root))
         ).as_posix()
-        _, ext = os.path.splitext(src.lower())
         if resource_path not in file_ref_registry:
             file_ref = PBXFileReference(
                 name=os.path.basename(src),
                 path=resource_path,
                 sourceTree=SourceTree.SOURCE_ROOT,
-                fileType=FileType.from_extension(ext),
+                lastKnownFileType=FileType.for_resource(src),
             )
             file_ref_registry[resource_path] = file_ref
         else:
@@ -1197,7 +1182,8 @@ def create_target(
         else:
             resource_build_files.append(build_file)
 
-    # Create product reference - path includes package to ensure uniqueness.
+    # Create product reference, resolved against the target's BUILT_PRODUCTS_DIR
+    # (its CONFIGURATION_BUILD_DIR); the owner keeps IDs unique across packages.
     # Derive filename from shared artifact logic to avoid duplicating naming rules.
     product_config = bake_config(
         project_info.base_config,
@@ -1209,20 +1195,14 @@ def create_target(
         package_name=target_info.package.name,
         target=target_info.target,
     )
-    if isinstance(target_info.target, CCLibrary):
-        product_type = FileType.ARCHIVE
-    elif isinstance(target_info.target, AppleApplication):
-        product_type = FileType.APP
-    elif isinstance(target_info.target, MetalLibrary):
-        product_type = FileType.METAL_LIBRARY
-    else:
-        product_type = FileType.EXECUTABLE
-    product_path = f"{target_info.package.name}/{product_filename}"
     product_ref = PBXFileReference(
         name=target_info.target.name,
-        path=product_path,
-        sourceTree=SourceTree.SOURCE_ROOT,
-        fileType=product_type,
+        path=product_filename,
+        sourceTree=SourceTree.BUILT_PRODUCTS_DIR,
+        explicitFileType=target_info.file_type,
+        includeInIndex=0,
+        fileEncoding=None,
+        owner=full_name,
     )
 
     # Each target compiles only its own source files
@@ -1261,13 +1241,7 @@ def create_target(
     # Create configurations - one per build config per target
     target_configs = []
 
-    # Compute per-project build roots to keep intermediates out of workspace root
-    project_stem = Path(project_info.base_config.build_root).stem
-    build_root_dir = posixpath.dirname(
-        Path(project_info.base_config.build_root).as_posix()
-    )
-    objroot_rel = posixpath.join(build_root_dir, ".xcode-obj", project_stem)
-    symroot_rel = posixpath.join(build_root_dir, ".xcode-sym", project_stem)
+    objroot_rel, symroot_rel = _xcode_build_dirs(project_info.base_config)
 
     # Resolve the effective compile target once. For AppleApplication, this is the
     # wrapped binary (so the .app's compile/link settings match the binary it wraps).
@@ -1638,7 +1612,7 @@ def create_target(
     )
 
 
-def generate_xcode_project(config: Config, workspace: Workspace) -> XcodeProject:
+def gather_project_info(config: Config, workspace: Workspace) -> ProjectInfo:
     # Temp Hack: artifact paths are intended to be architecture-specific
     # (e.g. .../.artifacts/arm64/... vs .../.artifacts/x86_64/...), but in
     # multi-arch generation Xcode can switch/merge architecture outputs without
@@ -1655,7 +1629,8 @@ def generate_xcode_project(config: Config, workspace: Workspace) -> XcodeProject
 
     # For Xcode's build matrix, we need to handle configs and architectures separately
     # We'll use the original config's build_config and architecture lists
-    project_info = ProjectInfo.gather(workspace, config, [config])
+    return ProjectInfo.gather(workspace, config, [config])
 
-    # Create and return project
-    return create_xcode_project(project_info)
+
+def generate_xcode_project(config: Config, workspace: Workspace) -> XcodeProject:
+    return create_xcode_project(gather_project_info(config, workspace))

@@ -1,7 +1,6 @@
 """In-memory behavioral tests for file_group: strip_prefix -> (src, dst) resolution,
 and how apple_application merges file_groups into structure-preserving resources."""
 
-import io
 import unittest
 from pathlib import Path
 
@@ -49,9 +48,7 @@ def _makefile(app, pkg, ws):
         build_root="Out/build/macos",
     )
     tm = TargetMk(config, ws, Path("Out/build/macos"), pkg, app)
-    buf = io.StringIO()
-    tm._write_makefile(buf)
-    return buf.getvalue()
+    return tm.rules_text()
 
 
 class TestResourceDestinations(unittest.TestCase):
