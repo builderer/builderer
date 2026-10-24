@@ -20,14 +20,15 @@ def build_config_root(build_root: str, arch: str, config: str) -> str:
     return f"{build_root}/{arch}/{config}"
 
 
+# A target's generated makefiles live in their own directory,
+# <package>/<target>/, like its intermediates: rules.mk holds the object list and
+# rules, options.mk every setting that decides how the target builds.
 def mk_target_build_path(package, target):
-    return Path(package.name).joinpath(f"{target.name}.mk")
+    return Path(package.name, target.name, "rules.mk")
 
 
-# Compile-settings stamp, written next to the target's .mk file. Objects depend on
-# it so changed flags, defines, includes or source locations rebuild them.
-def compile_stamp_build_path(package, target):
-    return Path(package.name).joinpath(f"{target.name}.compile")
+def options_build_path(package, target):
+    return Path(package.name, target.name, "options.mk")
 
 
 # A target's intermediates: $(OBJS_ROOT)/<package>/<target>. Packages map to

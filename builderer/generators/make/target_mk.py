@@ -1,7 +1,10 @@
+import io
 import os
 
+from dataclasses import dataclass
+from functools import cached_property
 from pathlib import Path
-from typing import Optional, TextIO
+from typing import List, Optional, TextIO
 
 from builderer.details.file_utils import write_text_if_changed
 from builderer.details.naming import flat_target_name
@@ -21,10 +24,10 @@ from builderer.generators.make.utils import (
     apple_application_output_path,
     apple_bundle_resource_dir,
     cc_binary_output_path_workspace,
-    compile_stamp_build_path,
     metal_library_output_path,
     mk_target_build_path,
     object_subpaths,
+    options_build_path,
     target_obj_dir,
     phony_target_name,
     is_header_only_library,
@@ -132,6 +135,52 @@ PLATFORM_ARCH_FLAGS = {
 }
 
 
+# Resolved settings of a C/C++/ObjC target, shared by its options.mk and rules.mk
+@dataclass(frozen=True)
+class CcSettings:
+    source_root: Optional[str]  # common ancestor of the compiled sources
+    sources: List[str]  # compiled sources, relative to source_root
+    includes: List[str]
+    build_includes: List[str]  # Swift dependencies' emitted header directories
+    swift_headers: List[str]  # those headers, needed before anything compiles
+    defines: List[str]
+    cflags: str
+    cxxflags: str
+    lflags: str  # binaries only
+    libs: List[str]  # dependency libraries in link order (binaries only)
+    link_driver: str  # binaries only
+
+
+# Resolved settings of a Swift target, shared by its options.mk and rules.mk
+@dataclass(frozen=True)
+class SwiftSettings:
+    sources: List[str]  # workspace-relative
+    flags: List[str]
+    xcc_flags: List[str]
+    module_search: List[str]
+    dep_modules: List[str]  # dependencies' .swiftmodule files
+    lflags: str  # binaries only
+    libs: List[str]  # dependency libraries in link order (binaries only)
+
+
+# Resolved settings of a metal_library, shared by its options.mk and rules.mk
+@dataclass(frozen=True)
+class MetalSettings:
+    sdk: str
+    flags: str
+    source_root: Optional[str]  # common ancestor of the .metal sources
+    sources: List[str]  # .metal sources, relative to source_root
+
+
+# Writes a target's two makefiles into <package>/<target>/ under its arch/config
+# directory:
+#  - options.mk: every setting that decides how the target builds (flags,
+#    defines, include paths, where its sources live). Objects depend on it.
+#  - rules.mk: the object list and the rules; includes options.mk. Outputs depend
+#    on both files.
+# Each file is only rewritten when its contents change, so editing sources
+# rebuilds just those objects plus the output, while changing any option rebuilds
+# the whole target.
 class TargetMk:
     def __init__(self, config, workspace, build_root, package, target):
         self.config = config
@@ -141,11 +190,15 @@ class TargetMk:
         self.path = build_root.joinpath(
             mk_target_build_path(package=package, target=target)
         )
-        self.stamp_path = build_root.joinpath(
-            compile_stamp_build_path(package=package, target=target)
+        self.options_path = build_root.joinpath(
+            options_build_path(package=package, target=target)
         )
-        # Compile settings of targets that compile anything, set by the writer
-        self.compile_stamp: Optional[str] = None
+
+    def __call__(self):
+        options = self.options_text()
+        if options is not None:
+            write_text_if_changed(self.options_path, options)
+        write_text_if_changed(self.path, self.rules_text())
 
     @property
     def phony(self):
@@ -154,6 +207,10 @@ class TargetMk:
     @property
     def requires_linking(self):
         return isinstance(self.target, (CCBinary, SwiftBinary))
+
+    @property
+    def has_options(self):
+        return not isinstance(self.target, AppleApplication)
 
     @property
     def out_path(self):
@@ -187,53 +244,72 @@ class TargetMk:
     def var_name(self, prefix: str):
         return f"{prefix}__{flat_target_name(self.package.name, self.target.name)}"
 
-    def __call__(self):
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        with open(self.path, "w") as file:
-            self._write_makefile(file)
-        # Objects depend on the stamp, so only rewrite it when settings change
-        if self.compile_stamp is not None:
-            write_text_if_changed(self.stamp_path, self.compile_stamp)
+    @property
+    def options_ref(self):
+        options = options_build_path(package=self.package, target=self.target)
+        return f"$(BUILD_CONFIG_ROOT)/{options.as_posix()}"
 
     @property
-    def stamp_ref(self):
-        stamp = compile_stamp_build_path(package=self.package, target=self.target)
-        return f"$(BUILD_CONFIG_ROOT)/{stamp.as_posix()}"
+    def rules_ref(self):
+        rules = mk_target_build_path(package=self.package, target=self.target)
+        return f"$(BUILD_CONFIG_ROOT)/{rules.as_posix()}"
 
-    # The make path of a source, from its normalized absolute path
-    def source_ref(self, path: str) -> str:
+    # The make path of a directory holding a target's sources
+    def source_root_ref(self, path: str) -> str:
         rel = Path(os.path.relpath(path, self.workspace.root)).as_posix()
         return f"$(WORKSPACE_ROOT)/{rel}"
 
-    def _write_makefile(self, file: TextIO):
-        if isinstance(self.target, AppleApplication):
-            self._write_apple_application_makefile(file)
-        elif isinstance(self.target, (CCLibrary, CCBinary)):
-            self._write_cc_makefile(file)
+    # The contents of options.mk, or None for targets without options
+    def options_text(self) -> Optional[str]:
+        if not self.has_options:
+            return None
+        file = io.StringIO()
+        file.writelines(["# Generated by Builderer\n", "\n"])
+        if isinstance(self.target, (CCLibrary, CCBinary)):
+            self._write_cc_options(file, self._cc_settings)
         elif isinstance(self.target, (SwiftLibrary, SwiftBinary)):
-            self._write_swift_makefile(file)
+            self._write_swift_options(file, self._swift_settings)
         elif isinstance(self.target, MetalLibrary):
-            self._write_metal_makefile(file)
+            self._write_metal_options(file, self._metal_settings)
         else:
             raise RuntimeError(f"unsupported target type {type(self.target)}")
+        return file.getvalue()
 
-    def _write_cc_makefile(self, file: TextIO):
-        # pick some variable names...
-        includes_var = self.var_name("INCLUDES")
-        build_includes_var = self.var_name("BUILD_INCLUDES")
-        defines_var = self.var_name("DEFINES")
-        cflags_var = self.var_name("CFLAGS")
-        cxxflags_var = self.var_name("CXXFLAGS")
-        lflags_var = self.var_name("LFLAGS")
-        obj_dir_var = self.var_name("OBJ_DIR")
-        stamp_var = self.var_name("COMPILE_STAMP")
-        objs_var = self.var_name("OBJS")
-        deps_var = self.var_name("DEPS")
-        cc_compile_var = self.var_name("CC_COMPILE")
-        cxx_compile_var = self.var_name("CXX_COMPILE")
+    # The contents of rules.mk
+    def rules_text(self) -> str:
+        file = io.StringIO()
+        file.writelines(["# Generated by Builderer\n", "\n"])
+        if self.has_options:
+            file.writelines(
+                [
+                    f"include {self.options_ref}\n",
+                    "\n",
+                    f"{self.var_name('OPTIONS')} := {self.options_ref}\n",
+                ]
+            )
+        file.writelines(
+            [
+                f"{self.var_name('RULES')} := {self.rules_ref}\n",
+                "\n",
+                f"{self.phony}: {self.out_path}\n",
+                "\n",
+            ]
+        )
+        if isinstance(self.target, AppleApplication):
+            self._write_apple_application_rules(file)
+        elif isinstance(self.target, (CCLibrary, CCBinary)):
+            self._write_cc_rules(file, self._cc_settings)
+        elif isinstance(self.target, (SwiftLibrary, SwiftBinary)):
+            self._write_swift_rules(file, self._swift_settings)
+        elif isinstance(self.target, MetalLibrary):
+            self._write_metal_rules(file, self._metal_settings)
+        else:
+            raise RuntimeError(f"unsupported target type {type(self.target)}")
+        return file.getvalue()
 
-        # All transitive dependencies (unique, reversed for link order)
-        all_dep_list = list(
+    # All transitive dependencies (unique, reversed for link order)
+    def _link_ordered_dependencies(self):
+        return list(
             reversed(
                 list(
                     self.workspace.all_dependencies(
@@ -242,106 +318,61 @@ class TargetMk:
                 )
             )
         )
-        all_dependencies = [(p, t) for p, t in all_dep_list if isinstance(t, CCLibrary)]
+
+    #
+    # C/C++/ObjC
+    #
+
+    @cached_property
+    def _cc_settings(self) -> CcSettings:
+        target = self.target
+        dependencies = self._link_ordered_dependencies()
+        cc_dependencies = [(p, t) for p, t in dependencies if isinstance(t, CCLibrary)]
         swift_dependencies = [
-            (p, t) for p, t in all_dep_list if isinstance(t, SwiftLibrary)
+            (p, t) for p, t in dependencies if isinstance(t, SwiftLibrary)
         ]
 
-        # header
-        file.writelines(
-            [
-                f"# Generated by Builderer\n",
-                "\n",
-            ]
-        )
-
-        # Phony package/target name
-        file.writelines(
-            [
-                f"{self.phony}: {self.out_path}\n",
-                "\n",
-            ]
-        )
-
-        # compiled sources -> objects in this target's intermediates directory
-        ancestor, subpaths = object_subpaths(
+        # compiled sources, relative to their common ancestor
+        source_root, subpaths = object_subpaths(
             [
                 src
-                for src in resolve_conditionals(
-                    config=self.config, value=self.target.srcs
-                )
+                for src in resolve_conditionals(config=self.config, value=target.srcs)
                 if os.path.splitext(src)[-1] in COMPILE_EXTS
             ],
             self.workspace.root,
         )
-        objects = (
-            {
-                f"$({obj_dir_var})/{subpath}.o": os.path.join(ancestor, subpath)
-                for subpath in subpaths.values()
-            }
-            if ancestor
-            else {}
-        )
 
-        # private includes
+        # private, public and dependency includes
         includes = list(
-            resolve_conditionals(config=self.config, value=self.target.private_includes)
+            resolve_conditionals(config=self.config, value=target.private_includes)
         )
-        # public includes
-        if isinstance(self.target, CCLibrary):
+        if isinstance(target, CCLibrary):
             includes.extend(
-                resolve_conditionals(
-                    config=self.config, value=self.target.public_includes
-                )
+                resolve_conditionals(config=self.config, value=target.public_includes)
             )
-        # dependency includes
         includes.extend(
             [
                 i
-                for _, dep_t in all_dependencies
+                for _, dep_t in cc_dependencies
                 for i in resolve_conditionals(
                     config=self.config, value=dep_t.public_includes
                 )
             ]
         )
-        file.writelines(
-            [
-                f"{includes_var} :=",
-                *[f" \\\n  {i}" for i in includes],
-                "\n\n",
-            ]
-        )
-
-        # build-tree includes: emitted Swift headers from SwiftLibrary deps (when
-        # swift_header is set), in those deps' intermediates directories.
-        build_includes = [
-            swift_header_dir(dep_p, dep_t)
-            for dep_p, dep_t in swift_dependencies
-            if dep_t.swift_header
-        ]
-        file.writelines(
-            [
-                f"{build_includes_var} :=",
-                *[f" \\\n  {i}" for i in build_includes],
-                "\n\n",
-            ]
-        )
 
         # preprocessor defines
         defines = [
-            *resolve_conditionals(config=self.config, value=self.target.private_defines)
+            *resolve_conditionals(config=self.config, value=target.private_defines)
         ]
-        if isinstance(self.target, CCLibrary):
+        if isinstance(target, CCLibrary):
             defines.extend(
-                resolve_conditionals(
-                    config=self.config, value=self.target.public_defines
-                )
+                resolve_conditionals(config=self.config, value=target.public_defines)
             )
         defines.extend(
             [
                 define
                 for _, dep_target in self.workspace.all_dependencies(
-                    self.package, self.target
+                    self.package, target
                 )
                 if isinstance(dep_target, CCLibrary)
                 for define in resolve_conditionals(
@@ -349,92 +380,139 @@ class TargetMk:
                 )
             ]
         )
-        file.writelines(
-            [
-                f"{defines_var} := {' '.join(defines)}\n",
-                "\n",
-            ]
-        )
 
-        # get architecture-specific compiler and linker flags...
+        # architecture-specific compiler and linker flags
         archflags = PLATFORM_ARCH_FLAGS[self.config.platform][self.config.architecture]
-
-        # compiler flags
-        cflags = resolve_conditionals(config=self.config, value=self.target.c_flags)
-        cxxflags = resolve_conditionals(config=self.config, value=self.target.cxx_flags)
-        file.writelines(
-            [
-                f"{cflags_var}   := {archflags} {' '.join(cflags)}\n",
-                f"{cxxflags_var} := {archflags} {' '.join(cxxflags)}\n",
-                "\n",
-            ]
+        cflags = resolve_conditionals(config=self.config, value=target.c_flags)
+        cxxflags = resolve_conditionals(config=self.config, value=target.cxx_flags)
+        lflags = (
+            resolve_conditionals(config=self.config, value=target.link_flags)
+            if self.requires_linking
+            else []
         )
 
-        # linker flags
+        # dependency libraries to link, for binaries
+        libs = []
         if self.requires_linking:
-            lflags = [
-                *resolve_conditionals(config=self.config, value=self.target.link_flags),
-            ]
-            file.writelines(
-                [
-                    f"{lflags_var}   := {archflags} {' '.join(lflags)}\n",
-                    "\n",
-                ]
-            )
-
-        # object/dependency files
-        file.writelines(
-            [
-                f"{obj_dir_var} := {target_obj_dir(self.package, self.target)}\n",
-                f"{stamp_var} := {self.stamp_ref}\n",
-                f"{objs_var} :=",
-                *[f" \\\n  {obj}" for obj in objects],
-                "\n",
-                f"{deps_var} := $({objs_var}:.o=.d)\n",
-                "\n",
-            ]
-        )
-
-        # Include deps files if available
-        file.writelines(
-            [
-                f"-include $({deps_var})\n",
-                "\n",
-            ]
-        )
-
-        # output target...
-        if isinstance(self.target, CCLibrary):
-            file.writelines(
-                [
-                    f"{self.out_path}: $({objs_var})\n",
-                    f"\t@$(ECHO) Archiving $@\n" f"\t@$(MKDIR) $(dir $@)\n",
-                    f"\t@$(RM) $@\n",
-                    f"\t@$(AR) rcS $@ $^\n",
-                    f"\t@$(RANLIB) $@\n",
-                    "\n",
-                ]
-            )
-        elif isinstance(self.target, CCBinary):
-            dep_libs = [
+            libs = [
                 cc_library_output_path(config=self.config, package=dep_p, target=dep_t)
-                for dep_p, dep_t in all_dependencies
+                for dep_p, dep_t in cc_dependencies
                 if not is_header_only_library(dep_t)
-            ]
-            swift_dep_libs = [
+            ] + [
                 swift_library_output_path(
                     config=self.config, package=dep_p, target=dep_t
                 )
                 for dep_p, dep_t in swift_dependencies
             ]
+
+        swift_header_deps = [(p, t) for p, t in swift_dependencies if t.swift_header]
+        return CcSettings(
+            source_root=source_root,
+            sources=list(subpaths.values()),
+            includes=includes,
+            build_includes=[swift_header_dir(p, t) for p, t in swift_header_deps],
+            swift_headers=[
+                f"{swift_header_dir(p, t)}/{t.swift_header}"
+                for p, t in swift_header_deps
+            ],
+            defines=defines,
+            cflags=f"{archflags} {' '.join(cflags)}",
+            cxxflags=f"{archflags} {' '.join(cxxflags)}",
+            lflags=f"{archflags} {' '.join(lflags)}",
+            libs=libs,
             # When linking against any SwiftLibrary, drive the link with swiftc so
             # Swift runtime + rpaths are handled automatically.
-            link_driver = "$(SWIFTC)" if swift_dependencies else "$(CCLD)"
+            link_driver="$(SWIFTC)" if swift_dependencies else "$(CCLD)",
+        )
+
+    def _write_cc_options(self, file: TextIO, settings: CcSettings):
+        includes_var = self.var_name("INCLUDES")
+        build_includes_var = self.var_name("BUILD_INCLUDES")
+        defines_var = self.var_name("DEFINES")
+        cflags_var = self.var_name("CFLAGS")
+        cxxflags_var = self.var_name("CXXFLAGS")
+
+        # Where the sources live: when it moves (e.g. a repository fetched into a
+        # new sandbox) the objects keep their paths but must rebuild
+        if settings.source_root:
+            file.write(
+                f"{self.var_name('SRC_ROOT')} := "
+                f"{self.source_root_ref(settings.source_root)}\n\n"
+            )
+        file.writelines(
+            [
+                f"{includes_var} :=",
+                *[f" \\\n  {i}" for i in settings.includes],
+                "\n\n",
+                f"{build_includes_var} :=",
+                *[f" \\\n  {i}" for i in settings.build_includes],
+                "\n\n",
+                f"{defines_var} := {' '.join(settings.defines)}\n",
+                "\n",
+                f"{cflags_var}   := {settings.cflags}\n",
+                f"{cxxflags_var} := {settings.cxxflags}\n",
+                "\n",
+            ]
+        )
+        if self.requires_linking:
+            file.write(f"{self.var_name('LFLAGS')}   := {settings.lflags}\n\n")
+
+        # Compile commands, expanded for each object at recipe time
+        common_flags = (
+            f"$(addprefix -I$(WORKSPACE_ROOT)/,$({includes_var})) "
+            f"$(addprefix -I,$({build_includes_var})) "
+            f"$(addprefix -D,$({defines_var}))"
+        )
+        file.writelines(
+            [
+                f"{self.var_name('CC_COMPILE')} = $(CC) -MT $@ -MMD -MP -MF $(@:.o=.d) $({cflags_var}) {common_flags} -c $< -o $@\n",
+                f"{self.var_name('CXX_COMPILE')} = $(CXX) -MT $@ -MMD -MP -MF $(@:.o=.d) $({cxxflags_var}) {common_flags} -c $< -o $@\n",
+            ]
+        )
+
+    def _write_cc_rules(self, file: TextIO, settings: CcSettings):
+        options_var = self.var_name("OPTIONS")
+        rules_var = self.var_name("RULES")
+        obj_dir_var = self.var_name("OBJ_DIR")
+        objs_var = self.var_name("OBJS")
+        deps_var = self.var_name("DEPS")
+
+        # objects in this target's intermediates directory, with their .d files
+        objects = [f"$({obj_dir_var})/{src}.o" for src in settings.sources]
+        file.writelines(
+            [
+                f"{obj_dir_var} := {target_obj_dir(self.package, self.target)}\n",
+                f"{objs_var} :=",
+                *[f" \\\n  {obj}" for obj in objects],
+                "\n",
+                f"{deps_var} := $({objs_var}:.o=.d)\n",
+                "\n",
+                f"-include $({deps_var})\n",
+                "\n",
+            ]
+        )
+
+        # output target, rebuilt when the object list or any option changes
+        if isinstance(self.target, CCLibrary):
             file.writelines(
                 [
-                    f"{self.out_path}: $({objs_var}) {' '.join(dep_libs + swift_dep_libs)}\n",
-                    f"\t@$(ECHO) Linking $@\n" f"\t@$(MKDIR) $(dir $@)\n",
-                    f"\t@{link_driver} $^ $({lflags_var}) -o $@\n",
+                    f"{self.out_path}: $({objs_var}) $({options_var}) $({rules_var})\n",
+                    f"\t@$(ECHO) Archiving $@\n",
+                    f"\t@$(MKDIR) $(dir $@)\n",
+                    f"\t@$(RM) $@\n",
+                    f"\t@$(AR) rcS $@ $({objs_var})\n",
+                    f"\t@$(RANLIB) $@\n",
+                    "\n",
+                ]
+            )
+        elif isinstance(self.target, CCBinary):
+            libs = " ".join(settings.libs)
+            file.writelines(
+                [
+                    f"{self.out_path}: $({objs_var}) {libs} $({options_var}) $({rules_var})\n",
+                    f"\t@$(ECHO) Linking $@\n",
+                    f"\t@$(MKDIR) $(dir $@)\n",
+                    f"\t@{settings.link_driver} $({objs_var}) {libs} $({self.var_name('LFLAGS')}) -o $@\n",
                     "\n",
                 ]
             )
@@ -445,54 +523,17 @@ class TargetMk:
         # that #includes them is built. Use an order-only prereq so this doesn't
         # force unnecessary rebuilds when headers change (header changes invalidate
         # the .swiftmodule sentinel, which propagates via the swift compile rule).
-        swift_header_paths = [
-            f"{swift_header_dir(dep_p, dep_t)}/{dep_t.swift_header}"
-            for dep_p, dep_t in swift_dependencies
-            if dep_t.swift_header
-        ]
-        if swift_header_paths:
-            file.write(f"$({objs_var}): | {' '.join(swift_header_paths)}\n\n")
-
-        # Everything that decides how this target's objects compile. Objects depend
-        # on it, so changed flags, defines or include paths (which carry dependency
-        # sandbox hashes) rebuild them, as does a move of the sources' common
-        # ancestor. A source added in the same place doesn't.
-        self.compile_stamp = "".join(
-            f"{key}: {value}\n"
-            for key, value in [
-                ("sources", ancestor or ""),
-                ("cflags", f"{archflags} {' '.join(cflags)}"),
-                ("cxxflags", f"{archflags} {' '.join(cxxflags)}"),
-                ("defines", " ".join(defines)),
-                ("includes", " ".join(includes)),
-                ("build_includes", " ".join(build_includes)),
-            ]
-        )
-
-        # Compile commands, expanded for each object at recipe time
-        common_flags = (
-            f"$(addprefix -I$(WORKSPACE_ROOT)/,$({includes_var})) "
-            f"$(addprefix -I,$({build_includes_var})) "
-            f"$(addprefix -D,$({defines_var}))"
-        )
-        file.writelines(
-            [
-                f"{cc_compile_var} = $(CC) -MT $@ -MMD -MP -MF $(@:.o=.d) $({cflags_var}) {common_flags} -c $< -o $@\n",
-                f"{cxx_compile_var} = $(CXX) -MT $@ -MMD -MP -MF $(@:.o=.d) $({cxxflags_var}) {common_flags} -c $< -o $@\n",
-                "\n",
-            ]
-        )
+        if settings.swift_headers:
+            file.write(f"$({objs_var}): | {' '.join(settings.swift_headers)}\n\n")
 
         # One rule per object; its source is the first prerequisite ($<)
-        for obj, src in objects.items():
-            compile_var = (
-                cc_compile_var
-                if os.path.splitext(src)[-1] in CC_EXTS
-                else cxx_compile_var
+        for src, obj in zip(settings.sources, objects):
+            compile_var = self.var_name(
+                "CC_COMPILE" if os.path.splitext(src)[-1] in CC_EXTS else "CXX_COMPILE"
             )
             file.writelines(
                 [
-                    f"{obj}: {self.source_ref(src)} $({stamp_var})\n",
+                    f"{obj}: $({self.var_name('SRC_ROOT')})/{src} $({options_var})\n",
                     f"\t@$(ECHO) Compiling $(notdir $<)\n",
                     f"\t@$(MKDIR) $(dir $@)\n",
                     f"\t@$({compile_var})\n",
@@ -500,70 +541,26 @@ class TargetMk:
                 ]
             )
 
-    def _write_swift_makefile(self, file: TextIO):
-        is_library = isinstance(self.target, SwiftLibrary)
+    #
+    # Swift
+    #
+
+    @cached_property
+    def _swift_settings(self) -> SwiftSettings:
         target = self.target
-
-        srcs_var = self.var_name("SWIFT_SRCS")
-        flags_var = self.var_name("SWIFTFLAGS")
-        xcc_var = self.var_name("SWIFT_XCC")
-        modulesearch_var = self.var_name("SWIFT_MODULE_I")
-        obj_var = self.var_name("SWIFT_OBJ")
-        module_var = self.var_name("SWIFTMODULE")
-        header_var = self.var_name("SWIFTHEADER")
-        lflags_var = self.var_name("LFLAGS")
-        stamp_var = self.var_name("COMPILE_STAMP")
-
-        all_dep_list = list(
-            reversed(
-                list(
-                    self.workspace.all_dependencies(package=self.package, target=target)
-                )
-            )
-        )
-        cc_dependencies = [(p, t) for p, t in all_dep_list if isinstance(t, CCLibrary)]
+        is_library = isinstance(target, SwiftLibrary)
+        dependencies = self._link_ordered_dependencies()
+        cc_dependencies = [(p, t) for p, t in dependencies if isinstance(t, CCLibrary)]
         swift_dependencies = [
-            (p, t) for p, t in all_dep_list if isinstance(t, SwiftLibrary)
+            (p, t) for p, t in dependencies if isinstance(t, SwiftLibrary)
         ]
         swift_cc_modules = [
-            (p, t) for p, t in all_dep_list if isinstance(t, SwiftCcModule)
+            (p, t) for p, t in dependencies if isinstance(t, SwiftCcModule)
         ]
-
-        file.writelines(["# Generated by Builderer\n", "\n"])
-        file.writelines([f"{self.phony}: {self.out_path}\n", "\n"])
-
-        # source files (workspace-relative posix paths, joined with WORKSPACE_ROOT at use)
-        swift_srcs = [
-            Path(os.path.relpath(src, self.workspace.root)).as_posix()
-            for src in resolve_conditionals(config=self.config, value=target.srcs)
-            if os.path.splitext(src)[-1] in SWIFT_EXTS
-        ]
-        file.writelines(
-            [
-                f"{srcs_var} :=",
-                *[f" \\\n  {s}" for s in swift_srcs],
-                "\n\n",
-            ]
-        )
-
-        # output paths, in this target's intermediates directory
-        obj_dir = target_obj_dir(self.package, target)
-        file.write(f"{obj_var} := {obj_dir}/{target.name}.swift.o\n")
-        file.write(f"{stamp_var} := {self.stamp_ref}\n")
-        if is_library:
-            file.write(f"{module_var} := {swift_module_path(self.package, target)}\n")
-            if target.swift_header:
-                file.write(
-                    f"{header_var} := {swift_header_dir(self.package, target)}/{target.swift_header}\n"
-                )
-        file.write("\n")
 
         # Swift flags (swiftc uses -target, not -arch)
         swift_archflags = SWIFT_PLATFORM_ARCH_FLAGS.get(self.config.platform, {}).get(
             self.config.architecture, ""
-        )
-        user_swift_flags = list(
-            resolve_conditionals(config=self.config, value=target.swift_flags)
         )
         flags = [
             swift_archflags,
@@ -573,21 +570,24 @@ class TargetMk:
             "-emit-object",
         ]
         if is_library:
-            flags += ["-emit-module", "-emit-module-path", f"$({module_var})"]
+            flags += [
+                "-emit-module",
+                "-emit-module-path",
+                f"$({self.var_name('SWIFTMODULE')})",
+            ]
             if target.swift_header:
                 emit_flag = (
                     "-emit-clang-header-path"
                     if target.cxx_interop
                     else "-emit-objc-header-path"
                 )
-                flags += [emit_flag, f"$({header_var})"]
+                flags += [emit_flag, f"$({self.var_name('SWIFTHEADER')})"]
         if target.cxx_interop:
             flags += ["-cxx-interoperability-mode=default"]
-        flags += user_swift_flags
-        file.write(f"{flags_var} := {' '.join(flags)}\n\n")
+        flags += resolve_conditionals(config=self.config, value=target.swift_flags)
 
         # -Xcc flags: modulemaps from swift_cc_module deps + include/define from cc_library deps
-        xcc_flags: list[str] = []
+        xcc_flags: List[str] = []
         for _, ccmod_t in swift_cc_modules:
             for modmap_abs in ccmod_t.module_maps:
                 modmap_rel = Path(
@@ -608,70 +608,115 @@ class TargetMk:
                 config=self.config, value=cc_dep.public_defines
             ):
                 xcc_flags += ["-Xcc", f"-D{d}"]
-        file.write(f"{xcc_var} := {' '.join(xcc_flags)}\n\n")
 
         # -I search paths for dep swift_library .swiftmodule directories
-        module_search = []
+        module_search: List[str] = []
         for sw_p, sw_dep in swift_dependencies:
             module_search += ["-I", swift_module_dir(sw_p, sw_dep)]
-        file.write(f"{modulesearch_var} := {' '.join(module_search)}\n\n")
 
-        # Everything that decides how the module compiles. It compiles whole, so
-        # the source list belongs here too: a source added with an old timestamp
-        # must still rebuild it.
-        self.compile_stamp = "".join(
-            f"{key}: {value}\n"
-            for key, value in [
-                ("sources", " ".join(swift_srcs)),
-                ("flags", " ".join(flags)),
-                ("xcc", " ".join(xcc_flags)),
-                ("module_search", " ".join(module_search)),
-            ]
-        )
-
-        # Output / link rule
-        if is_library:
-            file.writelines(
-                [
-                    f"{self.out_path}: $({obj_var})\n",
-                    f"\t@$(ECHO) Archiving $@\n",
-                    f"\t@$(MKDIR) $(dir $@)\n",
-                    f"\t@$(RM) $@\n",
-                    f"\t@$(AR) rcS $@ $^\n",
-                    f"\t@$(RANLIB) $@\n",
-                    "\n",
-                ]
-            )
-        else:
-            dep_libs = [
+        # dependency libraries to link, for binaries
+        libs = []
+        lflags = ""
+        if not is_library:
+            libs = [
                 cc_library_output_path(config=self.config, package=dep_p, target=dep_t)
                 for dep_p, dep_t in cc_dependencies
                 if not is_header_only_library(dep_t)
-            ]
-            swift_dep_libs = [
+            ] + [
                 swift_library_output_path(
                     config=self.config, package=dep_p, target=dep_t
                 )
                 for dep_p, dep_t in swift_dependencies
             ]
-            user_link_flags = list(
-                resolve_conditionals(config=self.config, value=target.link_flags)
+            user_link_flags = resolve_conditionals(
+                config=self.config, value=target.link_flags
             )
-            file.write(
-                f"{lflags_var} := {swift_archflags} {' '.join(user_link_flags)}\n\n"
-            )
+            lflags = f"{swift_archflags} {' '.join(user_link_flags)}"
+
+        return SwiftSettings(
+            # workspace-relative posix paths, joined with WORKSPACE_ROOT at use
+            sources=[
+                Path(os.path.relpath(src, self.workspace.root)).as_posix()
+                for src in resolve_conditionals(config=self.config, value=target.srcs)
+                if os.path.splitext(src)[-1] in SWIFT_EXTS
+            ],
+            flags=flags,
+            xcc_flags=xcc_flags,
+            module_search=module_search,
+            dep_modules=[swift_module_path(p, t) for p, t in swift_dependencies],
+            lflags=lflags,
+            libs=libs,
+        )
+
+    def _write_swift_options(self, file: TextIO, settings: SwiftSettings):
+        file.writelines(
+            [
+                f"{self.var_name('SWIFTFLAGS')} := {' '.join(settings.flags)}\n\n",
+                f"{self.var_name('SWIFT_XCC')} := {' '.join(settings.xcc_flags)}\n\n",
+                f"{self.var_name('SWIFT_MODULE_I')} := {' '.join(settings.module_search)}\n",
+            ]
+        )
+        if self.requires_linking:
+            file.write(f"\n{self.var_name('LFLAGS')} := {settings.lflags}\n")
+
+    def _write_swift_rules(self, file: TextIO, settings: SwiftSettings):
+        target = self.target
+        is_library = isinstance(target, SwiftLibrary)
+        srcs_var = self.var_name("SWIFT_SRCS")
+        obj_var = self.var_name("SWIFT_OBJ")
+        module_var = self.var_name("SWIFTMODULE")
+        header_var = self.var_name("SWIFTHEADER")
+        options_var = self.var_name("OPTIONS")
+        rules_var = self.var_name("RULES")
+
+        file.writelines(
+            [
+                f"{srcs_var} :=",
+                *[f" \\\n  {s}" for s in settings.sources],
+                "\n\n",
+            ]
+        )
+
+        # output paths, in this target's intermediates directory
+        obj_dir = target_obj_dir(self.package, target)
+        file.write(f"{obj_var} := {obj_dir}/{target.name}.swift.o\n")
+        if is_library:
+            file.write(f"{module_var} := {swift_module_path(self.package, target)}\n")
+            if target.swift_header:
+                file.write(
+                    f"{header_var} := {swift_header_dir(self.package, target)}/{target.swift_header}\n"
+                )
+        file.write("\n")
+
+        # Output / link rule, rebuilt when the module or any option changes
+        if is_library:
             file.writelines(
                 [
-                    f"{self.out_path}: $({obj_var}) {' '.join(dep_libs + swift_dep_libs)}\n",
+                    f"{self.out_path}: $({obj_var}) $({options_var}) $({rules_var})\n",
+                    f"\t@$(ECHO) Archiving $@\n",
+                    f"\t@$(MKDIR) $(dir $@)\n",
+                    f"\t@$(RM) $@\n",
+                    f"\t@$(AR) rcS $@ $({obj_var})\n",
+                    f"\t@$(RANLIB) $@\n",
+                    "\n",
+                ]
+            )
+        else:
+            libs = " ".join(settings.libs)
+            file.writelines(
+                [
+                    f"{self.out_path}: $({obj_var}) {libs} $({options_var}) $({rules_var})\n",
                     f"\t@$(ECHO) Linking $@\n",
                     f"\t@$(MKDIR) $(dir $@)\n",
-                    f"\t@$(SWIFTC) $^ $({lflags_var}) -o $@\n",
+                    f"\t@$(SWIFTC) $({obj_var}) {libs} $({self.var_name('LFLAGS')}) -o $@\n",
                     "\n",
                 ]
             )
 
         # Swift compile rule: produces .o (+ .swiftmodule and emitted header for libraries).
-        # Prereqs: source files + dep .swiftmodules (so make orders swift→swift correctly).
+        # Prereqs: source files + dep .swiftmodules (so make orders swift→swift correctly),
+        # plus both makefiles: the module compiles whole, so a changed source list
+        # (in rules.mk) rebuilds it just like a changed option.
         compile_outputs = [f"$({obj_var})"]
         if is_library:
             compile_outputs.append(f"$({module_var})")
@@ -679,23 +724,28 @@ class TargetMk:
                 compile_outputs.append(f"$({header_var})")
         compile_prereqs = [
             f"$(addprefix $(WORKSPACE_ROOT)/,$({srcs_var}))",
-            f"$({stamp_var})",
+            f"$({options_var})",
+            f"$({rules_var})",
+            *settings.dep_modules,
         ]
-        for dep_p, dep_t in swift_dependencies:
-            compile_prereqs.append(swift_module_path(dep_p, dep_t))
         file.write(f"{' '.join(compile_outputs)}: {' '.join(compile_prereqs)}\n")
         file.write(f"\t@$(ECHO) Compiling Swift module {target.name}\n")
         for out_ref in compile_outputs:
             file.write(f"\t@$(MKDIR) $(dir {out_ref})\n")
         file.write(
-            f"\t@$(SWIFTC) $({flags_var}) $({xcc_var}) $({modulesearch_var})"
+            f"\t@$(SWIFTC) $({self.var_name('SWIFTFLAGS')}) $({self.var_name('SWIFT_XCC')})"
+            f" $({self.var_name('SWIFT_MODULE_I')})"
             f" -o $({obj_var})"
             f" $(addprefix $(WORKSPACE_ROOT)/,$({srcs_var}))\n\n"
         )
 
-    def _write_metal_makefile(self, file: TextIO):
-        target = self.target
+    #
+    # Metal
+    #
 
+    @cached_property
+    def _metal_settings(self) -> MetalSettings:
+        target = self.target
         if self.config.platform not in METAL_PLATFORM:
             raise ValueError(
                 f"metal_library '{target.name}' is not supported on platform "
@@ -703,12 +753,7 @@ class TargetMk:
                 f"{sorted(METAL_PLATFORM)}"
             )
         sdk, triple = METAL_PLATFORM[self.config.platform]
-
-        air_var = self.var_name("METAL_AIR")
-        flags_var = self.var_name("METALFLAGS")
-        stamp_var = self.var_name("COMPILE_STAMP")
-
-        ancestor, subpaths = object_subpaths(
+        source_root, subpaths = object_subpaths(
             [
                 src
                 for src in resolve_conditionals(config=self.config, value=target.srcs)
@@ -716,33 +761,31 @@ class TargetMk:
             ],
             self.workspace.root,
         )
-
-        user_flags = list(
-            resolve_conditionals(config=self.config, value=target.metal_flags)
+        user_flags = resolve_conditionals(config=self.config, value=target.metal_flags)
+        return MetalSettings(
+            sdk=sdk,
+            flags=f"-target {triple} {' '.join(user_flags)}",
+            source_root=source_root,
+            sources=list(subpaths.values()),
         )
 
-        file.writelines(["# Generated by Builderer\n", "\n"])
-        file.writelines([f"{self.phony}: {self.out_path}\n", "\n"])
+    def _write_metal_options(self, file: TextIO, settings: MetalSettings):
+        if settings.source_root:
+            file.write(
+                f"{self.var_name('SRC_ROOT')} := "
+                f"{self.source_root_ref(settings.source_root)}\n\n"
+            )
+        file.write(f"{self.var_name('METALFLAGS')} := {settings.flags}\n")
 
-        flags = f"-target {triple} {' '.join(user_flags)}"
-        file.write(f"{flags_var} := {flags}\n")
-        file.write(f"{stamp_var} := {self.stamp_ref}\n\n")
-
-        # Objects depend on this, so changed flags or a moved source ancestor
-        # rebuild them
-        self.compile_stamp = f"sources: {ancestor or ''}\nflags: {flags}\n"
+    def _write_metal_rules(self, file: TextIO, settings: MetalSettings):
+        air_var = self.var_name("METAL_AIR")
+        options_var = self.var_name("OPTIONS")
+        rules_var = self.var_name("RULES")
 
         # One .air per source in this target's intermediates directory, at the
         # source's path relative to the sources' common ancestor
-        obj_dir = target_obj_dir(self.package, target)
-        airs = (
-            {
-                f"{obj_dir}/{subpath}.air": os.path.join(ancestor, subpath)
-                for subpath in subpaths.values()
-            }
-            if ancestor
-            else {}
-        )
+        obj_dir = target_obj_dir(self.package, self.target)
+        airs = [f"{obj_dir}/{src}.air" for src in settings.sources]
         file.writelines(
             [
                 f"{air_var} :=",
@@ -752,13 +795,13 @@ class TargetMk:
         )
 
         # Compile rule: .metal -> .air
-        for air, src in airs.items():
+        for src, air in zip(settings.sources, airs):
             file.writelines(
                 [
-                    f"{air}: {self.source_ref(src)} $({stamp_var})\n",
+                    f"{air}: $({self.var_name('SRC_ROOT')})/{src} $({options_var})\n",
                     f"\t@$(ECHO) Compiling Metal {Path(src).name}\n",
                     f"\t@$(MKDIR) $(dir $@)\n",
-                    f"\t@xcrun -sdk {sdk} metal -c $({flags_var}) -o $@ $<\n",
+                    f"\t@xcrun -sdk {settings.sdk} metal -c $({self.var_name('METALFLAGS')}) -o $@ $<\n",
                     "\n",
                 ]
             )
@@ -769,15 +812,19 @@ class TargetMk:
         # library is determined purely by its filename (the target name).
         file.writelines(
             [
-                f"{self.out_path}: $({air_var})\n",
+                f"{self.out_path}: $({air_var}) $({options_var}) $({rules_var})\n",
                 f"\t@$(ECHO) Linking Metal library $@\n",
                 f"\t@$(MKDIR) $(dir $@)\n",
-                f"\t@xcrun -sdk {sdk} metallib -o $@ $^\n",
+                f"\t@xcrun -sdk {settings.sdk} metallib -o $@ $({air_var})\n",
                 "\n",
             ]
         )
 
-    def _write_apple_application_makefile(self, file: TextIO):
+    #
+    # Apple application bundles
+    #
+
+    def _write_apple_application_rules(self, file: TextIO):
         binary_package, binary_target = self.target.resolve_binary_target(
             self.workspace, self.package
         )
@@ -828,15 +875,14 @@ class TargetMk:
         # The platform resources dir (macOS: Contents/Resources; flat bundles: root).
         res_dir = apple_bundle_resource_dir(self.config.platform)
         dst_prefix = f"$@/{res_dir}" if res_dir else "$@"
+        # The bundle's contents (Info.plist, resource list) live in rules.mk, so it
+        # repackages when that file changes
         file.writelines(
             [
-                "# Generated by Builderer\n",
-                "\n",
-                f"{self.phony}: {self.out_path}\n",
-                "\n",
                 f"{self.out_path}: $(WORKSPACE_ROOT)/{binary_path}",
                 *[f" $(WORKSPACE_ROOT)/{src}" for src, _ in resource_pairs],
                 *[f" {metallib_path}" for metallib_path, _ in metal_libs],
+                f" $({self.var_name('RULES')})",
                 "\n",
                 "\t@$(ECHO) Packaging $@\n",
                 "\t@rm -rf $@\n",

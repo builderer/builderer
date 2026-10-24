@@ -1,6 +1,5 @@
 """Behavioral tests for the Makefile emitter (rendered to a StringIO, no disk)."""
 
-import io
 import unittest
 from pathlib import Path
 
@@ -28,11 +27,10 @@ def _make_config(**over):
     )
 
 
+# A target's generated make text: its rules.mk followed by its options.mk
 def _makefile(target, package, workspace, config):
     tm = TargetMk(config, workspace, Path(config.build_root), package, target)
-    buf = io.StringIO()
-    tm._write_makefile(buf)
-    return buf.getvalue()
+    return tm.rules_text() + (tm.options_text() or "")
 
 
 def _single(target, config=None):
