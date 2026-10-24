@@ -14,6 +14,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 
 from builderer import Config
+from builderer.details.file_types import C_FAMILY_KINDS, FileKind, file_kind
 from builderer.details.target_artifact import (
     artifact_root,
     get_target_artifact_subpath,
@@ -153,25 +154,9 @@ APPLE_PLATFORMS: Dict[str, ApplePlatform] = {
     "ios": IOS,
 }
 
-# Extensions that Xcode can compile (add to sources build phase)
-COMPILABLE_EXTENSIONS = frozenset(
-    {
-        # C/C++
-        ".c",
-        ".cc",
-        ".cpp",
-        ".cxx",
-        # Objective-C/C++
-        ".m",
-        ".mm",
-        # Assembly
-        ".s",
-        # Swift
-        ".swift",
-        # Metal (Xcode's built-in rule compiles these into default.metallib)
-        ".metal",
-    }
-)
+# Kinds of sources Xcode compiles (added to the sources build phase). Metal uses
+# Xcode's built-in rule, which compiles them into default.metallib.
+COMPILED_KINDS = C_FAMILY_KINDS | {FileKind.SWIFT, FileKind.METAL}
 
 
 @dataclass(frozen=True)
@@ -1119,7 +1104,6 @@ def create_target(
         src_path = Path(
             os.path.relpath(src, str(project_info.workspace_root))
         ).as_posix()
-        _, ext = os.path.splitext(src.lower())
 
         # Check if file reference already exists
         if src_path not in file_ref_registry:
@@ -1127,7 +1111,7 @@ def create_target(
                 name=os.path.basename(src),
                 path=src_path,
                 sourceTree=SourceTree.SOURCE_ROOT,
-                lastKnownFileType=FileType.from_extension(ext),
+                lastKnownFileType=FileType.for_source(src),
             )
             file_ref_registry[src_path] = file_ref
         else:
@@ -1137,7 +1121,7 @@ def create_target(
         sources_group.children.append(Reference(file_ref.id))
 
         # Only add compilable files to the build phase
-        if ext in COMPILABLE_EXTENSIONS:
+        if file_kind(src) in COMPILED_KINDS:
             build_file = PBXBuildFile(
                 fileRef=Reference(file_ref.id),
                 name=os.path.basename(src),
@@ -1158,7 +1142,7 @@ def create_target(
                 name=os.path.basename(hdr),
                 path=hdr_path,
                 sourceTree=SourceTree.SOURCE_ROOT,
-                lastKnownFileType=FileType.from_extension(os.path.splitext(hdr)[1]),
+                lastKnownFileType=FileType.for_source(hdr),
             )
             file_ref_registry[hdr_path] = file_ref
         else:
@@ -1176,13 +1160,12 @@ def create_target(
         resource_path = Path(
             os.path.relpath(src, str(project_info.workspace_root))
         ).as_posix()
-        _, ext = os.path.splitext(src.lower())
         if resource_path not in file_ref_registry:
             file_ref = PBXFileReference(
                 name=os.path.basename(src),
                 path=resource_path,
                 sourceTree=SourceTree.SOURCE_ROOT,
-                lastKnownFileType=FileType.from_extension(ext),
+                lastKnownFileType=FileType.for_resource(src),
             )
             file_ref_registry[resource_path] = file_ref
         else:

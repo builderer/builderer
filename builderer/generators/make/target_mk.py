@@ -4,8 +4,9 @@ import os
 from dataclasses import dataclass
 from functools import cached_property
 from pathlib import Path
-from typing import List, Optional, TextIO
+from typing import Dict, List, Optional, TextIO
 
+from builderer.details.file_types import C_FAMILY_KINDS, FileKind, file_kind
 from builderer.details.file_utils import write_text_if_changed
 from builderer.details.naming import flat_target_name
 from builderer.details.plist_xml import plist_dict_to_xml_text
@@ -40,21 +41,15 @@ from builderer.generators.make.utils import (
     swift_header_dir,
 )
 
-CC_EXTS = (
-    ".c",
-    ".m",
-)
-
-CXX_EXTS = (
-    ".cc",
-    ".cpp",
-    ".cxx",
-    ".mm",
-)
-
-SWIFT_EXTS = (".swift",)
-
-COMPILE_EXTS = frozenset(CC_EXTS + CXX_EXTS)
+# The compile command for each kind of C-family source. Every C-family kind must
+# be listed: there is no fallback, so a kind without a command fails generation.
+COMPILE_COMMANDS: Dict[FileKind, str] = {
+    FileKind.C: "CC_COMPILE",
+    FileKind.OBJC: "CC_COMPILE",
+    FileKind.ASM: "CC_COMPILE",
+    FileKind.CXX: "CXX_COMPILE",
+    FileKind.OBJCXX: "CXX_COMPILE",
+}
 
 
 # TODO: likely should be [toolchain][arch] instead...
@@ -98,9 +93,6 @@ METAL_PLATFORM = {
     "ios": ("iphoneos", "air64-apple-ios"),
     # extend with tvos/watchos/visionos alongside the rest of the generator
 }
-
-METAL_EXTS = (".metal",)
-
 
 PLATFORM_ARCH_FLAGS = {
     "linux": {
@@ -337,7 +329,7 @@ class TargetMk:
             [
                 src
                 for src in resolve_conditionals(config=self.config, value=target.srcs)
-                if os.path.splitext(src)[-1] in COMPILE_EXTS
+                if file_kind(src) in C_FAMILY_KINDS
             ],
             self.workspace.root,
         )
@@ -528,9 +520,9 @@ class TargetMk:
 
         # One rule per object; its source is the first prerequisite ($<)
         for src, obj in zip(settings.sources, objects):
-            compile_var = self.var_name(
-                "CC_COMPILE" if os.path.splitext(src)[-1] in CC_EXTS else "CXX_COMPILE"
-            )
+            kind = file_kind(src)
+            assert kind is not None, src  # only C-family sources get objects
+            compile_var = self.var_name(COMPILE_COMMANDS[kind])
             file.writelines(
                 [
                     f"{obj}: $({self.var_name('SRC_ROOT')})/{src} $({options_var})\n",
@@ -638,7 +630,7 @@ class TargetMk:
             sources=[
                 Path(os.path.relpath(src, self.workspace.root)).as_posix()
                 for src in resolve_conditionals(config=self.config, value=target.srcs)
-                if os.path.splitext(src)[-1] in SWIFT_EXTS
+                if file_kind(src) is FileKind.SWIFT
             ],
             flags=flags,
             xcc_flags=xcc_flags,
@@ -757,7 +749,7 @@ class TargetMk:
             [
                 src
                 for src in resolve_conditionals(config=self.config, value=target.srcs)
-                if os.path.splitext(src)[-1] in METAL_EXTS
+                if file_kind(src) is FileKind.METAL
             ],
             self.workspace.root,
         )

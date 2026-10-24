@@ -9,7 +9,10 @@ from enum import Enum
 from typing import Dict, List, Optional, Union, TypeVar, Generic
 from abc import ABC, abstractmethod
 
+import os
 import uuid
+
+from builderer.details.file_types import FileKind, file_extension, file_kind
 
 
 # Type definition for Xcode object identifiers
@@ -84,33 +87,47 @@ class FileType(Enum):
     EXECUTABLE = "compiled.mach-o.executable"
     ARCHIVE = "archive.ar"
 
+    # The type Xcode should assume for a source or header, or None to let Xcode
+    # infer it from the file itself. Only types builderer knows are stated: Xcode
+    # skips files whose stated type has no build rule, so a wrong guess silently
+    # drops sources. Assembly is left to Xcode, which tells .S from .s.
     @staticmethod
-    def from_extension(ext: str) -> "FileType":
-        if ext.startswith("."):
-            ext = ext[1:]
+    def for_source(path: Union[str, "os.PathLike[str]"]) -> Optional["FileType"]:
+        kind = file_kind(path)
+        if kind is FileKind.HEADER:
+            if file_extension(path) == ".h":
+                return FileType.C_HEADER
+            return FileType.CPP_HEADER
+        return SOURCE_FILE_TYPES.get(kind) if kind else None
 
-        ext_to_type = {
-            "c": FileType.C,
-            "cpp": FileType.CPP,
-            "h": FileType.C_HEADER,
-            "hpp": FileType.CPP_HEADER,
-            "swift": FileType.SWIFT,
-            "metal": FileType.METAL,
-            "m": FileType.OBJC,
-            "mm": FileType.OBJCPP,
-            "xib": FileType.XIB,
-            "storyboard": FileType.STORYBOARD,
-            "plist": FileType.PLIST,
-            "xcconfig": FileType.XCCONFIG,
-            "strings": FileType.STRINGS,
-            "xcassets": FileType.ASSET_CATALOG,
-            "framework": FileType.FRAMEWORK,
-            "bundle": FileType.BUNDLE,
-            "app": FileType.APP,
-            "dylib": FileType.DYLIB,
-        }
+    # The type Xcode should assume for a bundle resource, or None to let Xcode
+    # infer it
+    @staticmethod
+    def for_resource(path: Union[str, "os.PathLike[str]"]) -> Optional["FileType"]:
+        return RESOURCE_FILE_TYPES.get(file_extension(path))
 
-        return ext_to_type.get(ext.lower(), FileType.TEXT)
+
+SOURCE_FILE_TYPES: Dict[FileKind, FileType] = {
+    FileKind.C: FileType.C,
+    FileKind.CXX: FileType.CPP,
+    FileKind.OBJC: FileType.OBJC,
+    FileKind.OBJCXX: FileType.OBJCPP,
+    FileKind.SWIFT: FileType.SWIFT,
+    FileKind.METAL: FileType.METAL,
+}
+
+RESOURCE_FILE_TYPES: Dict[str, FileType] = {
+    ".xib": FileType.XIB,
+    ".storyboard": FileType.STORYBOARD,
+    ".plist": FileType.PLIST,
+    ".xcconfig": FileType.XCCONFIG,
+    ".strings": FileType.STRINGS,
+    ".xcassets": FileType.ASSET_CATALOG,
+    ".framework": FileType.FRAMEWORK,
+    ".bundle": FileType.BUNDLE,
+    ".app": FileType.APP,
+    ".dylib": FileType.DYLIB,
+}
 
 
 # Product types used in PBXNativeTarget

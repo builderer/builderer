@@ -9,7 +9,12 @@ model_builder.py / formatter.py without touching disk or running Xcode.
 import unittest
 
 from builderer.details.targets.swift_library import SwiftLibrary
-from builderer.generators.xcode.model import FileType, ProductType, SourceTree
+from builderer.generators.xcode.model import (
+    FileType,
+    PBXSourcesBuildPhase,
+    ProductType,
+    SourceTree,
+)
 from builderer.generators.xcode.model_builder import generate_xcode_project
 from builderer.generators.xcode.settings import CLANG_FLAGS, parse
 from builderer.generators.xcode.formatter import format_xcode_project
@@ -174,6 +179,67 @@ class TestProductReferences(unittest.TestCase):
         self.assertNotIn('"fileType"', text)
         self.assertIn('"lastKnownFileType" = "sourcecode.cpp.cpp"', text)
         self.assertIn('"explicitFileType" = "archive.ar"', text)
+
+
+class TestSourceFileTypes(unittest.TestCase):
+    def _project(self, srcs):
+        lib = make_cc_library("lib", srcs=srcs)
+        config = make_config(
+            buildtool="xcode",
+            toolchain="clang",
+            platform="macos",
+            build_root="Out/build/macos.xcodeproj",
+            architecture=["arm64"],
+        )
+        return generate_xcode_project(
+            config, make_workspace([make_package("pkg", [lib])])
+        )
+
+    def test_every_compilable_source_is_compiled_with_a_source_type(self):
+        # Xcode skips a compiled file whose stated type has no build rule, so
+        # each one must be in the sources phase and never typed as non-source
+        srcs = ["pkg/a.c", "pkg/b.cc", "pkg/c.cpp", "pkg/d.cxx", "pkg/e.m", "pkg/f.mm"]
+        proj = self._project(srcs + ["pkg/g.s"])
+        refs = {f.path: f for f in proj.fileReferences}
+        compiled = {
+            bf.fileRef.id
+            for phase in proj.buildPhases
+            if isinstance(phase, PBXSourcesBuildPhase)
+            for bf_ref in phase.files
+            for bf in proj.buildFiles
+            if bf.id == bf_ref.id
+        }
+        for path in srcs + ["pkg/g.s"]:
+            with self.subTest(path=path):
+                self.assertIn(refs[path].id, compiled)
+                file_type = refs[path].lastKnownFileType
+                self.assertTrue(
+                    file_type is None or file_type.value.startswith("sourcecode.")
+                )
+        self.assertEqual(refs["pkg/b.cc"].lastKnownFileType, FileType.CPP)
+        self.assertEqual(refs["pkg/d.cxx"].lastKnownFileType, FileType.CPP)
+
+    def test_header_like_includes_are_typed_but_not_compiled(self):
+        proj = self._project(["pkg/a.cpp", "pkg/table.inc", "pkg/impl.inl"])
+        refs = {f.path: f for f in proj.fileReferences}
+        compiled = {
+            bf.fileRef.id
+            for phase in proj.buildPhases
+            if isinstance(phase, PBXSourcesBuildPhase)
+            for bf_ref in phase.files
+            for bf in proj.buildFiles
+            if bf.id == bf_ref.id
+        }
+        for path in ("pkg/table.inc", "pkg/impl.inl"):
+            with self.subTest(path=path):
+                self.assertEqual(refs[path].lastKnownFileType, FileType.CPP_HEADER)
+                self.assertNotIn(refs[path].id, compiled)
+
+    def test_unknown_types_are_not_stated(self):
+        proj = self._project(["pkg/a.cpp", "pkg/notes.txt"])
+        ref = next(f for f in proj.fileReferences if f.path == "pkg/notes.txt")
+        self.assertIsNone(ref.lastKnownFileType)
+        self.assertNotIn('"text"', format_xcode_project(proj))
 
 
 class TestBuildLocations(unittest.TestCase):

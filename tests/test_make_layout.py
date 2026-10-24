@@ -22,7 +22,8 @@ from builderer.details.targets.metal_library import MetalLibrary
 from builderer.details.targets.swift_binary import SwiftBinary
 from builderer.details.targets.swift_library import SwiftLibrary
 from builderer.generators.make.root_makefile import RootMakefile
-from builderer.generators.make.target_mk import TargetMk
+from builderer.details.file_types import C_FAMILY_KINDS, FileKind
+from builderer.generators.make.target_mk import COMPILE_COMMANDS, TargetMk
 from builderer.generators.make.utils import object_subpaths, target_obj_dir
 
 from factories import (
@@ -227,6 +228,39 @@ class TestObjectRules(unittest.TestCase):
         self.assertIn("$(CC_COMPILE__pkg@lib)", c_rule)
         self.assertIn("$(CXX_COMPILE__pkg@lib)", cxx_rule)
 
+    def test_every_c_family_kind_has_its_own_compile_command(self):
+        # no kind may fall through to a default compiler
+        self.assertEqual(set(COMPILE_COMMANDS), set(C_FAMILY_KINDS))
+        self.assertEqual(
+            {k for k, cmd in COMPILE_COMMANDS.items() if cmd == "CXX_COMPILE"},
+            {FileKind.CXX, FileKind.OBJCXX},
+        )
+
+    def test_assembly_compiles_with_the_c_compiler(self):
+        rules, _ = _single(make_cc_library("lib", srcs=["pkg/a.s", "pkg/b.S"]))
+        for obj in ("a.s.o", "b.S.o"):
+            with self.subTest(obj=obj):
+                rule = rules.split(f"$(OBJ_DIR__pkg@lib)/{obj}:")[1].split("\n\n")[0]
+                self.assertIn("$(CC_COMPILE__pkg@lib)", rule)
+
+    def test_sources_are_classified_regardless_of_case(self):
+        rules, _ = _single(make_cc_library("lib", srcs=["pkg/a.CPP", "pkg/b.C"]))
+        cxx_rule = rules.split("$(OBJ_DIR__pkg@lib)/a.CPP.o:")[1].split("\n\n")[0]
+        c_rule = rules.split("$(OBJ_DIR__pkg@lib)/b.C.o:")[1].split("\n\n")[0]
+        self.assertIn("$(CXX_COMPILE__pkg@lib)", cxx_rule)
+        self.assertIn("$(CC_COMPILE__pkg@lib)", c_rule)
+
+    def test_headers_and_unknown_files_are_not_compiled(self):
+        lib = make_cc_library(
+            "lib", srcs=["pkg/a.c", "pkg/b.hh", "pkg/c.inl", "pkg/Dense", "pkg/d.txt"]
+        )
+        rules, _ = _single(lib)
+        objects = [
+            l for l in rules.splitlines() if l.startswith("$(OBJ_DIR__pkg@lib)/")
+        ]
+        self.assertEqual(len(objects), 1)
+        self.assertTrue(objects[0].startswith("$(OBJ_DIR__pkg@lib)/a.c.o:"))
+
     def test_compile_commands_compile_the_first_prerequisite(self):
         _, options = _single(make_cc_library("lib", srcs=["pkg/a.c"]))
         compile_line = next(
@@ -421,8 +455,12 @@ class TestRootMakefile(unittest.TestCase):
 
     def test_moved_c_family_sources_cannot_stop_the_build(self):
         root = self._root()
-        for ext in (".c", ".m", ".cc", ".cpp", ".cxx", ".mm"):
-            self.assertIn(f"\n%{ext}: ;\n", root)
+        # make matches case-sensitively, so both spellings are guarded
+        for ext in (".c", ".m", ".cc", ".cpp", ".cxx", ".mm", ".s"):
+            for spelling in (ext, ext.upper()):
+                with self.subTest(ext=spelling):
+                    self.assertIn(f"\n%{spelling}: ;\n", root)
+        self.assertNotIn("\n%.h: ;\n", root)
 
 
 if __name__ == "__main__":

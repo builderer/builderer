@@ -7,7 +7,7 @@ from builderer import Config
 from builderer.details.as_iterator import str_iter
 from builderer.details.targets.target import BuildTarget
 from builderer.details.workspace import Workspace
-from builderer.generators.make.target_mk import CC_EXTS, CXX_EXTS
+from builderer.details.file_types import C_FAMILY_KINDS, kind_extensions
 from builderer.generators.make.utils import (
     build_config_root,
     mk_target_build_path,
@@ -152,9 +152,12 @@ class RootMakefile:
         # already makes missing headers harmless; these empty rules do the same
         # for sources, so make rebuilds instead of stopping with "No rule to make
         # target". A source that is really missing still fails to compile.
+        # Make matches case-sensitively and sources are classified regardless of
+        # case, so both spellings are covered (e.g. ".s" and ".S").
+        exts = kind_extensions(C_FAMILY_KINDS)
         file.writelines(
             [
-                *[f"%{ext}: ;\n" for ext in CC_EXTS + CXX_EXTS],
+                *[f"%{ext}: ;\n" for ext in exts + [e.upper() for e in exts]],
                 "\n",
             ]
         )
