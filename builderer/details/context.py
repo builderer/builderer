@@ -1,3 +1,5 @@
+import os
+
 from pathlib import Path
 from typing import Callable, Dict
 
@@ -19,6 +21,7 @@ class ConfigContext(Context):
         super().__init__(*args, **kwargs)
         self.buildtools: Dict[str, Callable] = {}
         self.configs: Dict[str, Config] = {}
+        self._build_roots: Dict[str, str] = {}
 
     def add_buildtool(self, name: str, generator: Callable):
         if name in self.buildtools:
@@ -28,7 +31,17 @@ class ConfigContext(Context):
     def add_config(self, name: str, **kwargs):
         if name in self.configs:
             raise RuntimeError(f"config {name} has already been registered")
-        self.configs[name] = Config(**kwargs)
+        config = Config(**kwargs)
+        # Build outputs are laid out by arch and build_config only, so two configs
+        # sharing a build_root would overwrite each other's files.
+        build_root = os.path.normpath(config.build_root)
+        if build_root in self._build_roots:
+            raise ValueError(
+                f"config '{name}' uses build_root='{config.build_root}', which config "
+                f"'{self._build_roots[build_root]}' already uses"
+            )
+        self._build_roots[build_root] = name
+        self.configs[name] = config
 
 
 class BuildContext(Context):

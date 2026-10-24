@@ -15,6 +15,8 @@ from pathlib import Path
 from builderer.details.context import BuildContext
 from builderer.details.naming import (
     check_package_name_conflicts,
+    check_target_package_aliasing,
+    package_directories,
     flat_package_name,
     flat_target_name,
     validate_package_name,
@@ -144,6 +146,43 @@ class TestPackageNameConflicts(unittest.TestCase):
         # Workspace passes its {name: Package} dict straight through
         with self.assertRaises(ValueError):
             check_package_name_conflicts({"p/q": object(), "p.q": object()})
+
+
+class TestTargetPackageAliasing(unittest.TestCase):
+    """Build outputs mirror <package>/<target> as directories, so a target's path
+    must never be a package directory or a directory above one."""
+
+    def test_target_named_like_a_subpackage_is_rejected(self):
+        with self.assertRaises(ValueError) as ctx:
+            check_target_package_aliasing({"a": ["b"], "a/b": ["t"]})
+        self.assertIn("a:b", str(ctx.exception))
+        self.assertIn("'a/b'", str(ctx.exception))
+
+    def test_target_named_like_a_directory_above_a_package_is_rejected(self):
+        # package "a/b/x" lives under target "a:b"'s folder
+        with self.assertRaises(ValueError) as ctx:
+            check_target_package_aliasing({"a": ["b"], "a/b/x": ["t"]})
+        self.assertIn("a:b", str(ctx.exception))
+
+    def test_root_package_targets_are_checked_against_top_level_packages(self):
+        with self.assertRaises(ValueError):
+            check_target_package_aliasing({".": ["tools"], "tools/sub": ["t"]})
+
+    def test_names_that_only_resemble_a_package_are_allowed(self):
+        check_target_package_aliasing(
+            {
+                "a": ["b.app", "bb", "c"],
+                "a/b": ["b"],  # a/b/b is a target, not a package
+                "a/b/c": ["x"],
+                ".": ["root_tool"],
+            }
+        )
+
+    def test_package_directories_include_every_ancestor(self):
+        self.assertEqual(
+            package_directories([".", "a/b/c", "d"]),
+            {("a",), ("a", "b"), ("a", "b", "c"), ("d",)},
+        )
 
 
 if __name__ == "__main__":

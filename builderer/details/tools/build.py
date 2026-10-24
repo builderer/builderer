@@ -8,6 +8,7 @@ from argparse import ArgumentParser
 from builderer import Config
 from builderer.details.as_iterator import str_iter
 from builderer.details.naming import flat_target_name
+from builderer.details.target_artifact import check_artifact_collisions
 from builderer.details.workspace import Workspace
 from builderer.generators.make import MakeGenerator
 from builderer.generators.msbuild import MsBuildGenerator
@@ -177,6 +178,7 @@ def build_target(
     build_arch: Optional[str] = None,
 ) -> int:
     # First, generate build files
+    check_artifact_collisions(workspace, config)
     generator_type = workspace.buildtools[config.buildtool]
     generator = generator_type(config, workspace)
     generator()

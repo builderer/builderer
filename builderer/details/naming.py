@@ -1,5 +1,5 @@
 from pathlib import PurePosixPath
-from typing import Dict, Iterable
+from typing import Dict, Iterable, Mapping, Set, Tuple
 
 # Flat names stand in for canonical "pkg/path:target" names wherever "/" and ":"
 # are not allowed (Xcode scheme file names, make targets and variables). "/" maps
@@ -47,3 +47,31 @@ def check_package_name_conflicts(names: Iterable[str]):
                 f"must stay distinct when '/' is read as '.'"
             )
         seen[flat] = name
+
+
+# Every package directory and each directory above one, as path components. The
+# workspace-root package "." has no components and contributes nothing.
+def package_directories(names: Iterable[str]) -> Set[Tuple[str, ...]]:
+    dirs: Set[Tuple[str, ...]] = set()
+    for name in names:
+        parts = PurePosixPath(name).parts
+        dirs.update(parts[:i] for i in range(1, len(parts) + 1))
+    return dirs
+
+
+# Build outputs mirror packages as directories with a folder per target
+# (<package>/<target>/), so a target must not share its path with a package
+# directory or a directory above one: package "a" can't have a target "b" while
+# package "a/b" or "a/b/x" exists.
+def check_target_package_aliasing(targets: Mapping[str, Iterable[str]]):
+    dirs = package_directories(targets)
+    for package_name in sorted(targets):
+        parts = PurePosixPath(package_name).parts
+        for target_name in sorted(targets[package_name]):
+            path = parts + (target_name,)
+            if path in dirs:
+                raise ValueError(
+                    f"target '{package_name}:{target_name}' has the same path as "
+                    f"package directory '{'/'.join(path)}': a target must not share "
+                    f"its <package>/<target> path with a package or a directory above one"
+                )

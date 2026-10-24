@@ -1,8 +1,9 @@
 import os
 
 from pathlib import Path
-from typing import TextIO
+from typing import Optional, TextIO
 
+from builderer.details.file_utils import write_text_if_changed
 from builderer.details.naming import flat_target_name
 from builderer.details.plist_xml import plist_dict_to_xml_text
 from builderer.details.targets.apple_application import (
@@ -20,8 +21,11 @@ from builderer.generators.make.utils import (
     apple_application_output_path,
     apple_bundle_resource_dir,
     cc_binary_output_path_workspace,
+    compile_stamp_build_path,
     metal_library_output_path,
     mk_target_build_path,
+    object_subpaths,
+    target_obj_dir,
     phony_target_name,
     is_header_only_library,
     cc_library_output_path,
@@ -137,6 +141,11 @@ class TargetMk:
         self.path = build_root.joinpath(
             mk_target_build_path(package=package, target=target)
         )
+        self.stamp_path = build_root.joinpath(
+            compile_stamp_build_path(package=package, target=target)
+        )
+        # Compile settings of targets that compile anything, set by the writer
+        self.compile_stamp: Optional[str] = None
 
     @property
     def phony(self):
@@ -182,6 +191,19 @@ class TargetMk:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with open(self.path, "w") as file:
             self._write_makefile(file)
+        # Objects depend on the stamp, so only rewrite it when settings change
+        if self.compile_stamp is not None:
+            write_text_if_changed(self.stamp_path, self.compile_stamp)
+
+    @property
+    def stamp_ref(self):
+        stamp = compile_stamp_build_path(package=self.package, target=self.target)
+        return f"$(BUILD_CONFIG_ROOT)/{stamp.as_posix()}"
+
+    # The make path of a source, from its normalized absolute path
+    def source_ref(self, path: str) -> str:
+        rel = Path(os.path.relpath(path, self.workspace.root)).as_posix()
+        return f"$(WORKSPACE_ROOT)/{rel}"
 
     def _write_makefile(self, file: TextIO):
         if isinstance(self.target, AppleApplication):
@@ -203,9 +225,12 @@ class TargetMk:
         cflags_var = self.var_name("CFLAGS")
         cxxflags_var = self.var_name("CXXFLAGS")
         lflags_var = self.var_name("LFLAGS")
-        srcs_var = self.var_name("SRCS")
+        obj_dir_var = self.var_name("OBJ_DIR")
+        stamp_var = self.var_name("COMPILE_STAMP")
         objs_var = self.var_name("OBJS")
         deps_var = self.var_name("DEPS")
+        cc_compile_var = self.var_name("CC_COMPILE")
+        cxx_compile_var = self.var_name("CXX_COMPILE")
 
         # All transitive dependencies (unique, reversed for link order)
         all_dep_list = list(
@@ -238,19 +263,24 @@ class TargetMk:
             ]
         )
 
-        # source files
-        file.writelines(
+        # compiled sources -> objects in this target's intermediates directory
+        ancestor, subpaths = object_subpaths(
             [
-                f"{srcs_var} :=",
-                *[
-                    f" \\\n  {Path(os.path.relpath(src, self.workspace.root)).as_posix()}"
-                    for src in resolve_conditionals(
-                        config=self.config, value=self.target.srcs
-                    )
-                    if os.path.splitext(src)[-1] in COMPILE_EXTS
-                ],
-                "\n\n",
-            ]
+                src
+                for src in resolve_conditionals(
+                    config=self.config, value=self.target.srcs
+                )
+                if os.path.splitext(src)[-1] in COMPILE_EXTS
+            ],
+            self.workspace.root,
+        )
+        objects = (
+            {
+                f"$({obj_dir_var})/{subpath}.o": os.path.join(ancestor, subpath)
+                for subpath in subpaths.values()
+            }
+            if ancestor
+            else {}
         )
 
         # private includes
@@ -282,8 +312,8 @@ class TargetMk:
             ]
         )
 
-        # build-tree includes: emitted Swift headers from SwiftLibrary deps (when swift_header is set).
-        # These are relative to $(BUILD_CONFIG_ROOT), not $(WORKSPACE_ROOT).
+        # build-tree includes: emitted Swift headers from SwiftLibrary deps (when
+        # swift_header is set), in those deps' intermediates directories.
         build_includes = [
             swift_header_dir(dep_p, dep_t)
             for dep_p, dep_t in swift_dependencies
@@ -355,8 +385,12 @@ class TargetMk:
         # object/dependency files
         file.writelines(
             [
-                f"{objs_var} := $(patsubst %,$(OBJS_ROOT)/%.o,$({srcs_var}))\n",
-                f"{deps_var} := $(addsuffix .d,$({objs_var}))\n",
+                f"{obj_dir_var} := {target_obj_dir(self.package, self.target)}\n",
+                f"{stamp_var} := {self.stamp_ref}\n",
+                f"{objs_var} :=",
+                *[f" \\\n  {obj}" for obj in objects],
+                "\n",
+                f"{deps_var} := $({objs_var}:.o=.d)\n",
                 "\n",
             ]
         )
@@ -412,33 +446,56 @@ class TargetMk:
         # force unnecessary rebuilds when headers change (header changes invalidate
         # the .swiftmodule sentinel, which propagates via the swift compile rule).
         swift_header_paths = [
-            f"$(BUILD_CONFIG_ROOT)/{swift_header_dir(dep_p, dep_t)}/{dep_t.swift_header}"
+            f"{swift_header_dir(dep_p, dep_t)}/{dep_t.swift_header}"
             for dep_p, dep_t in swift_dependencies
             if dep_t.swift_header
         ]
         if swift_header_paths:
             file.write(f"$({objs_var}): | {' '.join(swift_header_paths)}\n\n")
 
-        # .c rule
-        for ext in CC_EXTS:
-            file.writelines(
-                [
-                    f"$(filter %{ext}.o,$({objs_var})): $(OBJS_ROOT)/%.o: $(WORKSPACE_ROOT)/%\n",
-                    f"\t@$(ECHO) Compiling $(notdir $<)\n",
-                    f"\t@$(MKDIR) $(dir $@)\n",
-                    f"\t@$(CC) -MT $@ -MMD -MP -MF $@.d $({cflags_var}) $(addprefix -I$(WORKSPACE_ROOT)/,$({includes_var})) $(addprefix -I$(BUILD_CONFIG_ROOT)/,$({build_includes_var})) $(addprefix -D,$({defines_var})) -c $< -o $@\n",
-                    "\n",
-                ]
-            )
+        # Everything that decides how this target's objects compile. Objects depend
+        # on it, so changed flags, defines or include paths (which carry dependency
+        # sandbox hashes) rebuild them, as does a move of the sources' common
+        # ancestor. A source added in the same place doesn't.
+        self.compile_stamp = "".join(
+            f"{key}: {value}\n"
+            for key, value in [
+                ("sources", ancestor or ""),
+                ("cflags", f"{archflags} {' '.join(cflags)}"),
+                ("cxxflags", f"{archflags} {' '.join(cxxflags)}"),
+                ("defines", " ".join(defines)),
+                ("includes", " ".join(includes)),
+                ("build_includes", " ".join(build_includes)),
+            ]
+        )
 
-        # .cpp rule
-        for ext in CXX_EXTS:
+        # Compile commands, expanded for each object at recipe time
+        common_flags = (
+            f"$(addprefix -I$(WORKSPACE_ROOT)/,$({includes_var})) "
+            f"$(addprefix -I,$({build_includes_var})) "
+            f"$(addprefix -D,$({defines_var}))"
+        )
+        file.writelines(
+            [
+                f"{cc_compile_var} = $(CC) -MT $@ -MMD -MP -MF $(@:.o=.d) $({cflags_var}) {common_flags} -c $< -o $@\n",
+                f"{cxx_compile_var} = $(CXX) -MT $@ -MMD -MP -MF $(@:.o=.d) $({cxxflags_var}) {common_flags} -c $< -o $@\n",
+                "\n",
+            ]
+        )
+
+        # One rule per object; its source is the first prerequisite ($<)
+        for obj, src in objects.items():
+            compile_var = (
+                cc_compile_var
+                if os.path.splitext(src)[-1] in CC_EXTS
+                else cxx_compile_var
+            )
             file.writelines(
                 [
-                    f"$(filter %{ext}.o,$({objs_var})): $(OBJS_ROOT)/%.o: $(WORKSPACE_ROOT)/%\n",
+                    f"{obj}: {self.source_ref(src)} $({stamp_var})\n",
                     f"\t@$(ECHO) Compiling $(notdir $<)\n",
                     f"\t@$(MKDIR) $(dir $@)\n",
-                    f"\t@$(CXX) -MT $@ -MMD -MP -MF $@.d $({cxxflags_var}) $(addprefix -I$(WORKSPACE_ROOT)/,$({includes_var})) $(addprefix -I$(BUILD_CONFIG_ROOT)/,$({build_includes_var})) $(addprefix -D,$({defines_var})) -c $< -o $@\n",
+                    f"\t@$({compile_var})\n",
                     "\n",
                 ]
             )
@@ -455,6 +512,7 @@ class TargetMk:
         module_var = self.var_name("SWIFTMODULE")
         header_var = self.var_name("SWIFTHEADER")
         lflags_var = self.var_name("LFLAGS")
+        stamp_var = self.var_name("COMPILE_STAMP")
 
         all_dep_list = list(
             reversed(
@@ -488,16 +546,15 @@ class TargetMk:
             ]
         )
 
-        # output paths
-        obj_subpath = f".obj/{self.package.name}/{target.name}.swift.o"
-        file.write(f"{obj_var} := $(BUILD_CONFIG_ROOT)/{obj_subpath}\n")
+        # output paths, in this target's intermediates directory
+        obj_dir = target_obj_dir(self.package, target)
+        file.write(f"{obj_var} := {obj_dir}/{target.name}.swift.o\n")
+        file.write(f"{stamp_var} := {self.stamp_ref}\n")
         if is_library:
-            file.write(
-                f"{module_var} := $(BUILD_CONFIG_ROOT)/{swift_module_path(self.package, target)}\n"
-            )
+            file.write(f"{module_var} := {swift_module_path(self.package, target)}\n")
             if target.swift_header:
                 file.write(
-                    f"{header_var} := $(BUILD_CONFIG_ROOT)/{swift_header_dir(self.package, target)}/{target.swift_header}\n"
+                    f"{header_var} := {swift_header_dir(self.package, target)}/{target.swift_header}\n"
                 )
         file.write("\n")
 
@@ -556,11 +613,21 @@ class TargetMk:
         # -I search paths for dep swift_library .swiftmodule directories
         module_search = []
         for sw_p, sw_dep in swift_dependencies:
-            module_search += [
-                "-I",
-                f"$(BUILD_CONFIG_ROOT)/{swift_module_dir(sw_p, sw_dep)}",
-            ]
+            module_search += ["-I", swift_module_dir(sw_p, sw_dep)]
         file.write(f"{modulesearch_var} := {' '.join(module_search)}\n\n")
+
+        # Everything that decides how the module compiles. It compiles whole, so
+        # the source list belongs here too: a source added with an old timestamp
+        # must still rebuild it.
+        self.compile_stamp = "".join(
+            f"{key}: {value}\n"
+            for key, value in [
+                ("sources", " ".join(swift_srcs)),
+                ("flags", " ".join(flags)),
+                ("xcc", " ".join(xcc_flags)),
+                ("module_search", " ".join(module_search)),
+            ]
+        )
 
         # Output / link rule
         if is_library:
@@ -610,11 +677,12 @@ class TargetMk:
             compile_outputs.append(f"$({module_var})")
             if target.swift_header:
                 compile_outputs.append(f"$({header_var})")
-        compile_prereqs = [f"$(addprefix $(WORKSPACE_ROOT)/,$({srcs_var}))"]
+        compile_prereqs = [
+            f"$(addprefix $(WORKSPACE_ROOT)/,$({srcs_var}))",
+            f"$({stamp_var})",
+        ]
         for dep_p, dep_t in swift_dependencies:
-            compile_prereqs.append(
-                f"$(BUILD_CONFIG_ROOT)/{swift_module_path(dep_p, dep_t)}"
-            )
+            compile_prereqs.append(swift_module_path(dep_p, dep_t))
         file.write(f"{' '.join(compile_outputs)}: {' '.join(compile_prereqs)}\n")
         file.write(f"\t@$(ECHO) Compiling Swift module {target.name}\n")
         for out_ref in compile_outputs:
@@ -638,12 +706,16 @@ class TargetMk:
 
         air_var = self.var_name("METAL_AIR")
         flags_var = self.var_name("METALFLAGS")
+        stamp_var = self.var_name("COMPILE_STAMP")
 
-        metal_srcs = [
-            Path(os.path.relpath(src, self.workspace.root)).as_posix()
-            for src in resolve_conditionals(config=self.config, value=target.srcs)
-            if os.path.splitext(src)[-1] in METAL_EXTS
-        ]
+        ancestor, subpaths = object_subpaths(
+            [
+                src
+                for src in resolve_conditionals(config=self.config, value=target.srcs)
+                if os.path.splitext(src)[-1] in METAL_EXTS
+            ],
+            self.workspace.root,
+        )
 
         user_flags = list(
             resolve_conditionals(config=self.config, value=target.metal_flags)
@@ -652,12 +724,25 @@ class TargetMk:
         file.writelines(["# Generated by Builderer\n", "\n"])
         file.writelines([f"{self.phony}: {self.out_path}\n", "\n"])
 
-        file.write(f"{flags_var} := -target {triple} {' '.join(user_flags)}\n\n")
+        flags = f"-target {triple} {' '.join(user_flags)}"
+        file.write(f"{flags_var} := {flags}\n")
+        file.write(f"{stamp_var} := {self.stamp_ref}\n\n")
 
-        # One .air per source, keyed off the workspace-relative source path (the
-        # same $(OBJS_ROOT)/%: $(WORKSPACE_ROOT)/% idiom the cc writer uses).
-        air_subdir = f"$(OBJS_ROOT)/.metal/{self.package.name}/{target.name}"
-        airs = [f"{air_subdir}/{src}.air" for src in metal_srcs]
+        # Objects depend on this, so changed flags or a moved source ancestor
+        # rebuild them
+        self.compile_stamp = f"sources: {ancestor or ''}\nflags: {flags}\n"
+
+        # One .air per source in this target's intermediates directory, at the
+        # source's path relative to the sources' common ancestor
+        obj_dir = target_obj_dir(self.package, target)
+        airs = (
+            {
+                f"{obj_dir}/{subpath}.air": os.path.join(ancestor, subpath)
+                for subpath in subpaths.values()
+            }
+            if ancestor
+            else {}
+        )
         file.writelines(
             [
                 f"{air_var} :=",
@@ -667,10 +752,10 @@ class TargetMk:
         )
 
         # Compile rule: .metal -> .air
-        for src, air in zip(metal_srcs, airs):
+        for air, src in airs.items():
             file.writelines(
                 [
-                    f"{air}: $(WORKSPACE_ROOT)/{src}\n",
+                    f"{air}: {self.source_ref(src)} $({stamp_var})\n",
                     f"\t@$(ECHO) Compiling Metal {Path(src).name}\n",
                     f"\t@$(MKDIR) $(dir $@)\n",
                     f"\t@xcrun -sdk {sdk} metal -c $({flags_var}) -o $@ $<\n",

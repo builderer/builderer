@@ -7,6 +7,7 @@ from builderer import Config
 from builderer.details.as_iterator import str_iter
 from builderer.details.targets.target import BuildTarget
 from builderer.details.workspace import Workspace
+from builderer.generators.make.target_mk import CC_EXTS, CXX_EXTS
 from builderer.generators.make.utils import (
     build_config_root,
     mk_target_build_path,
@@ -99,9 +100,7 @@ class RootMakefile:
             [
                 f"BUILD_ROOT        := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))\n",
                 f"BUILD_CONFIG_ROOT := {build_config_root(build_root='$(BUILD_ROOT)', arch='$(ARCH)', config='$(CONFIG)')}\n",
-                f"OBJS_ROOT         := $(BUILD_CONFIG_ROOT)/.obj\n",
-                f"LIBS_ROOT         := $(BUILD_CONFIG_ROOT)/.lib\n",
-                f"RUNTIME_ROOT      := $(BUILD_CONFIG_ROOT)/.out\n",
+                f"OBJS_ROOT         := $(BUILD_ROOT)/.obj/$(ARCH)/$(CONFIG)\n",
                 f"WORKSPACE_ROOT    := $(abspath $(BUILD_ROOT)/{Path(os.path.relpath(self.workspace.root, self.root)).as_posix()})\n",
                 "\n",
             ]
@@ -144,6 +143,18 @@ class RootMakefile:
             [
                 f".PHONY: help build\n" "\n",
                 ".SUFFIXES:\n",
+                "\n",
+            ]
+        )
+
+        # A stale .d file can still name a C-family source that has since moved
+        # (a renamed folder, or a repository fetched into a new sandbox). -MP
+        # already makes missing headers harmless; these empty rules do the same
+        # for sources, so make rebuilds instead of stopping with "No rule to make
+        # target". A source that is really missing still fails to compile.
+        file.writelines(
+            [
+                *[f"%{ext}: ;\n" for ext in CC_EXTS + CXX_EXTS],
                 "\n",
             ]
         )

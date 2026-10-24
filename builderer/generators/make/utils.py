@@ -1,4 +1,7 @@
-from pathlib import Path
+import os
+
+from pathlib import Path, PurePosixPath
+from typing import Dict, Iterable, Optional, Tuple
 
 from builderer.details.naming import flat_target_name
 from builderer.details.target_artifact import (
@@ -19,6 +22,39 @@ def build_config_root(build_root: str, arch: str, config: str) -> str:
 
 def mk_target_build_path(package, target):
     return Path(package.name).joinpath(f"{target.name}.mk")
+
+
+# Compile-settings stamp, written next to the target's .mk file. Objects depend on
+# it so changed flags, defines, includes or source locations rebuild them.
+def compile_stamp_build_path(package, target):
+    return Path(package.name).joinpath(f"{target.name}.compile")
+
+
+# A target's intermediates: $(OBJS_ROOT)/<package>/<target>. Packages map to
+# directories; the workspace-root package "." adds no directory.
+def target_obj_dir(package, target) -> str:
+    return f"$(OBJS_ROOT)/{PurePosixPath(package.name, target.name).as_posix()}"
+
+
+# Object paths for a target's compiled sources: each source's path relative to the
+# lowest common ancestor directory of all of them. Sources may come from the
+# package, the target's own sandbox or other targets' sandboxes, and arrive with
+# "pkg/../" segments, so paths are normalized first (commonpath is purely lexical).
+# Distinct sources always get distinct paths, and none contain "..". Returns the
+# absolute ancestor and {source: object path without extension suffix}.
+def object_subpaths(
+    srcs: Iterable[str], workspace_root
+) -> Tuple[Optional[str], Dict[str, str]]:
+    normalized = {
+        src: os.path.normpath(os.path.join(workspace_root, src)) for src in srcs
+    }
+    if not normalized:
+        return None, {}
+    ancestor = os.path.commonpath([os.path.dirname(p) for p in normalized.values()])
+    return ancestor, {
+        src: Path(os.path.relpath(path, ancestor)).as_posix()
+        for src, path in normalized.items()
+    }
 
 
 def phony_target_name(package, target):
@@ -93,21 +129,21 @@ def swift_binary_output_path(config, package, target):
 
 
 # Internal Swift artifact paths (consumed only by other targets in the same workspace).
-# These live under $(BUILD_CONFIG_ROOT) and are not user-controllable.
+# These live in the target's intermediates directory and are not user-controllable.
 def swift_module_path(package, target):
-    """Path to the .swiftmodule produced by a SwiftLibrary, relative to BUILD_CONFIG_ROOT."""
+    """Path to the .swiftmodule produced by a SwiftLibrary."""
     assert isinstance(target, SwiftLibrary)
-    return f".swiftmodules/{package.name}/{target.name}.swiftmodule"
+    return f"{swift_module_dir(package, target)}/{target.name}.swiftmodule"
 
 
 def swift_module_dir(package, target):
     """Directory containing the .swiftmodule, for use as -I to downstream Swift consumers."""
     assert isinstance(target, SwiftLibrary)
-    return f".swiftmodules/{package.name}"
+    return target_obj_dir(package, target)
 
 
 def swift_header_dir(package, target):
     """Directory containing the emitted C-callable header, for use as -I to downstream
     C/C++ consumers. The header filename inside this dir is target.swift_header."""
     assert isinstance(target, SwiftLibrary)
-    return f".swiftheaders/{package.name}/{target.name}"
+    return f"{target_obj_dir(package, target)}/include"

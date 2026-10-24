@@ -1,9 +1,12 @@
+import os
+
 from copy import deepcopy
-from pathlib import Path
-from typing import Optional
+from pathlib import Path, PurePosixPath
+from typing import Dict, Optional
 
 from builderer import Config
 from builderer.details.as_iterator import str_iter
+from builderer.details.naming import package_directories
 from builderer.details.package import Package
 from builderer.details.targets.apple_application import AppleApplication
 from builderer.details.targets.cc_binary import CCBinary
@@ -63,23 +66,13 @@ def artifact_root(config) -> Path:
     return build_root
 
 
+# <artifact root>/.artifacts/<arch>/<build_config>/<package>/<filename>. Packages
+# map to directories; the workspace-root package "." adds no directory.
 def _default_artifact_subpath(config, package_name: str, target: BuildTarget) -> Path:
-    if isinstance(target, (CCLibrary, SwiftLibrary)):
-        kind = "libs"
-    elif isinstance(target, (CCBinary, SwiftBinary)):
-        kind = "binaries"
-    elif isinstance(target, AppleApplication):
-        kind = "applications"
-    elif isinstance(target, MetalLibrary):
-        kind = "metallibs"
-    else:
-        raise TypeError(f"unsupported build target type '{type(target).__name__}'")
     return artifact_root(config).joinpath(
         ".artifacts",
         str(config.architecture),
         str(config.build_config),
-        str(config.buildtool),
-        kind,
         package_name,
         _default_artifact_filename(config, target),
     )
@@ -121,3 +114,44 @@ def get_target_artifact_path(
     return workspace.root / get_target_artifact_subpath(
         resolve_config, package.name, target
     )
+
+
+# A header-only library builds nothing.
+def _produces_artifact(target) -> bool:
+    if isinstance(target, CCLibrary):
+        return bool(target.srcs)
+    return isinstance(target, BuildTarget)
+
+
+# Fails generation when two targets would write the same artifact, or when a
+# default artifact would land on a package's output directory. Paths compare
+# case-insensitively, since macOS and Windows filesystems do. Checked per arch and
+# build_config: an explicit output_path without the arch in it is meant to be
+# shared across architectures.
+def check_artifact_collisions(workspace: Workspace, config: Config):
+    package_dirs = package_directories(workspace.packages)
+    for arch in str_iter(config.architecture):
+        for build_config in str_iter(config.build_config):
+            variant = _resolve_config_variant(config, build_config, arch)
+            owners: Dict[str, str] = {}
+            for package, target in workspace.targets:
+                if not _produces_artifact(target):
+                    continue
+                name = f"{package.name}:{target.name}"
+                path = get_target_artifact_subpath(variant, package.name, target)
+                key = os.path.normpath(path).casefold()
+                if key in owners:
+                    raise ValueError(
+                        f"targets '{owners[key]}' and '{name}' both produce "
+                        f"'{path.as_posix()}' for {arch}/{build_config}"
+                    )
+                owners[key] = name
+                if resolve_conditionals(config=variant, value=target.output_path):
+                    continue
+                folder = PurePosixPath(package.name).parts + (path.name,)
+                if folder in package_dirs:
+                    raise ValueError(
+                        f"target '{name}' produces '{path.as_posix()}', which is "
+                        f"where package directory '{'/'.join(folder)}' keeps its "
+                        f"artifacts"
+                    )

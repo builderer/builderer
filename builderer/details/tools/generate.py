@@ -1,4 +1,5 @@
 from builderer import Config
+from builderer.details.target_artifact import check_artifact_collisions
 from builderer.details.workspace import Workspace
 
 
@@ -11,6 +12,7 @@ def generate_main(
 ):
     assert not command_args
     assert not binary_args
+    check_artifact_collisions(workspace, config)
     generator_type = workspace.buildtools[config.buildtool]
     generator = generator_type(config, workspace)
     generator()
