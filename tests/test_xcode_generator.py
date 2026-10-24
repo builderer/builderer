@@ -8,7 +8,8 @@ model_builder.py / formatter.py without touching disk or running Xcode.
 
 import unittest
 
-from builderer.generators.xcode.model import ProductType
+from builderer.details.targets.swift_library import SwiftLibrary
+from builderer.generators.xcode.model import FileType, ProductType, SourceTree
 from builderer.generators.xcode.model_builder import generate_xcode_project
 from builderer.generators.xcode.settings import CLANG_FLAGS, parse
 from builderer.generators.xcode.formatter import format_xcode_project
@@ -98,6 +99,99 @@ class TestXcodeGenerator(unittest.TestCase):
         self.assertIn("PBXNativeTarget", text)
         self.assertIn("rootObject", text)
         self.assertIn("pkg:app", text)
+
+
+def _product_refs(proj):
+    refs = {f.id: f for f in proj.fileReferences}
+    return {t.name: refs[t.productReference.id] for t in proj.nativeTargets}
+
+
+def _setting_values(proj):
+    for config in proj.buildConfigurations:
+        for name, setting in config.buildSettings.items():
+            values = (
+                setting.value if isinstance(setting.value, list) else [setting.value]
+            )
+            for value in values:
+                yield name, value
+
+
+class TestProductReferences(unittest.TestCase):
+    def test_products_resolve_in_the_targets_built_products_dir(self):
+        # each target's CONFIGURATION_BUILD_DIR is its BUILT_PRODUCTS_DIR, so the
+        # product is the bare filename there (not a path that never exists)
+        products = _product_refs(_project())
+        self.assertEqual(products["pkg:mylib"].path, "libmylib.a")
+        self.assertEqual(products["pkg:app"].path, "app")
+        for ref in products.values():
+            self.assertEqual(ref.sourceTree, SourceTree.BUILT_PRODUCTS_DIR)
+            self.assertEqual(ref.includeInIndex, 0)
+            self.assertIsNone(ref.lastKnownFileType)
+
+    def test_products_carry_an_explicit_file_type_per_product_kind(self):
+        swift_lib = SwiftLibrary(
+            name="slib", workspace_root="pkg", srcs=["pkg/s.swift"]
+        )
+        lib = make_cc_library("clib", srcs=["pkg/c.cpp"])
+        tool = make_cc_binary("tool", srcs=["pkg/m.cpp"])
+        pkg = make_package("pkg", [swift_lib, lib, tool])
+        config = make_config(
+            buildtool="xcode",
+            toolchain="clang",
+            platform="macos",
+            build_root="Out/build/macos.xcodeproj",
+            architecture=["arm64"],
+        )
+        products = _product_refs(generate_xcode_project(config, make_workspace([pkg])))
+        self.assertEqual(products["pkg:slib"].explicitFileType, FileType.ARCHIVE)
+        self.assertEqual(products["pkg:clib"].explicitFileType, FileType.ARCHIVE)
+        self.assertEqual(products["pkg:tool"].explicitFileType, FileType.EXECUTABLE)
+
+    def test_same_product_name_in_two_packages_keeps_both_references(self):
+        # bare product filenames repeat across packages; their IDs must not, or one
+        # target's product reference would silently replace the other's
+        a = make_package(
+            "a", [make_cc_library("lib", workspace_root="a", srcs=["a/x.cpp"])]
+        )
+        b = make_package(
+            "b", [make_cc_library("lib", workspace_root="b", srcs=["b/x.cpp"])]
+        )
+        config = make_config(
+            buildtool="xcode",
+            toolchain="clang",
+            platform="macos",
+            build_root="Out/build/macos.xcodeproj",
+            architecture=["arm64"],
+        )
+        proj = generate_xcode_project(config, make_workspace([a, b]))
+        products = _product_refs(proj)
+        self.assertNotEqual(products["a:lib"].id, products["b:lib"].id)
+        self.assertEqual([f.path for f in proj.fileReferences].count("liblib.a"), 2)
+        self.assertEqual(validate_references(proj), [])
+
+    def test_file_references_use_keys_xcode_reads(self):
+        text = format_xcode_project(_project())
+        self.assertNotIn('"fileType"', text)
+        self.assertIn('"lastKnownFileType" = "sourcecode.cpp.cpp"', text)
+        self.assertIn('"explicitFileType" = "archive.ar"', text)
+
+
+class TestBuildLocations(unittest.TestCase):
+    def test_nothing_is_built_inside_the_project_bundle(self):
+        for name, value in _setting_values(_project()):
+            if isinstance(value, str):
+                with self.subTest(setting=name):
+                    self.assertNotIn("macos.xcodeproj", value)
+
+    def test_build_dirs_sit_beside_the_project_bundle(self):
+        settings = dict(_setting_values(_project()))
+        self.assertEqual(settings["OBJROOT"], "$(SRCROOT)/Out/build/macos.noindex/.obj")
+        self.assertEqual(settings["SYMROOT"], "$(SRCROOT)/Out/build/macos.noindex/.sym")
+        self.assertTrue(
+            settings["CONFIGURATION_BUILD_DIR"].startswith(
+                "$(SRCROOT)/Out/build/macos.noindex/.artifacts/"
+            )
+        )
 
 
 class TestCompilerFlagParsing(unittest.TestCase):

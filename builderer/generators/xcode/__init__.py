@@ -1,10 +1,15 @@
 from pathlib import Path
 
 from builderer import Config
+from builderer.details.file_utils import write_text_if_changed
 from builderer.details.workspace import Workspace
 from builderer.details.as_iterator import str_iter
 from builderer.generators.xcode.formatter import format_xcode_project
-from builderer.generators.xcode.model_builder import generate_xcode_project
+from builderer.generators.xcode.model_builder import (
+    create_xcode_project,
+    gather_project_info,
+)
+from builderer.generators.xcode.schemes import SCHEMES_DIR, create_xcode_files
 from builderer.generators.xcode.validator import (
     validate_references,
     validate_paths,
@@ -27,11 +32,8 @@ def _generate(config: Config, workspace: Workspace) -> None:
         )
 
     # Generate project model
-    project = generate_xcode_project(config, workspace)
-
-    # Get output path
-    output_root = Path(config.build_root)
-    output_root.mkdir(parents=True, exist_ok=True)
+    project_info = gather_project_info(config, workspace)
+    project = create_xcode_project(project_info)
 
     # Validate references, paths, and output paths
     if errors := validate_references(project):
@@ -42,16 +44,19 @@ def _generate(config: Config, workspace: Workspace) -> None:
 
     validate_output_paths(project)
 
-    # Format and write to disk
-    project_str = format_xcode_project(project)
-    project_file = output_root / "project.pbxproj"
-    try:
-        existing = project_file.read_text()
-        if existing == project_str:
-            return
-    except FileNotFoundError:
-        pass
-    project_file.write_text(project_str)
+    # Format and write to disk, leaving unchanged files untouched
+    output_root = Path(config.build_root)
+    files = {
+        "project.pbxproj": format_xcode_project(project),
+        **create_xcode_files(project_info, project),
+    }
+    for path, text in sorted(files.items()):
+        write_text_if_changed(output_root / path, text)
+
+    # Builderer owns the shared schemes; drop those of targets that are gone
+    for scheme in (output_root / SCHEMES_DIR).glob("*.xcscheme"):
+        if f"{SCHEMES_DIR}/{scheme.name}" not in files:
+            scheme.unlink()
 
 
 class XcodeGenerator:

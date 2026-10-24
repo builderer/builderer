@@ -135,6 +135,8 @@ builderer build --config=linux Core:foundation Tools:viewer
 builderer build --config=linux
 ```
 
+Where `/` and `:` can't appear, generated build files use the target's **flat name** instead: `/` becomes `.` and `:` becomes `@`. `MyProject/SubModule:mylib` is the make target `MyProject.SubModule@mylib` and the Xcode scheme `MyProject.SubModule@mylib`.
+
 ## Configuration Selection
 
 The `--config` flag selects a configuration defined in `CONFIG.builderer`:

@@ -177,10 +177,16 @@ class PBXFileReference(XcodeObject):
     name: str
     path: str
     sourceTree: SourceTree
-    fileType: Optional[FileType] = None
-    fileEncoding: int = 4  # UTF-8 encoding, required by Xcode format
+    lastKnownFileType: Optional[FileType] = None  # source files
+    explicitFileType: Optional[FileType] = None  # target products
+    includeInIndex: Optional[int] = None
+    fileEncoding: Optional[int] = 4  # UTF-8 encoding, required by Xcode format
+    # Owning target, for key uniqueness of product refs (not serialized)
+    owner: Optional[str] = None
 
     def key(self) -> str:
+        if self.owner:
+            return f"PBXFileReference:{self.owner}:{self.path}"
         return f"PBXFileReference:{self.path}"
 
 

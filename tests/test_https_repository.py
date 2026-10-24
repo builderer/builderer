@@ -91,14 +91,18 @@ class TestHttpsRepositoryPreBuild(unittest.TestCase):
         with tempfile.TemporaryDirectory() as scratch:
             sandbox = Path(scratch) / "sb"
             patch = Path(scratch) / "fix.patch"
-            patch.write_text(dedent("""\
+            patch.write_text(
+                dedent(
+                    """\
                 --- a/file.txt
                 +++ b/file.txt
                 @@ -1 +1 @@
                 -hello
                 \\ No newline at end of file
                 +hello patched
-                """))
+                """
+                )
+            )
             with mock.patch.object(
                 urllib.request, "urlopen", lambda request: io.BytesIO(archive)
             ):

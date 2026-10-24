@@ -87,7 +87,9 @@ class TestPatch(unittest.TestCase):
     def test_git_format_patch(self):
         self._write("src/a.c", "int a;\nint b;\nint c;\n")
         self._write("old.txt", "bye\n")
-        self._apply(dedent("""\
+        self._apply(
+            dedent(
+                """\
             From 1234 Mon Sep 17 00:00:00 2001
             From: Someone <someone@example.com>
             Subject: [PATCH] several changes
@@ -121,7 +123,9 @@ class TestPatch(unittest.TestCase):
             -bye
             --\x20
             2.43.0
-            """))
+            """
+            )
+        )
         self.assertEqual(self._read("src/a.c"), "int a;\nlong b;\nint c;\n")
         self.assertEqual(self._read("new.sh"), "echo hi\n")
         self.assertFalse((self.root / "old.txt").exists())
@@ -131,7 +135,9 @@ class TestPatch(unittest.TestCase):
     def test_quoted_path_and_timestamps(self):
         self._write("dir with space/é.txt", "x\n")
         self._write("f.txt", "x\n")
-        self._apply(dedent("""\
+        self._apply(
+            dedent(
+                """\
             --- "a/dir with space/\\303\\251.txt"
             +++ "b/dir with space/\\303\\251.txt"
             @@ -1 +1 @@
@@ -142,13 +148,17 @@ class TestPatch(unittest.TestCase):
             @@ -1 +1 @@
             -x
             +y
-            """))
+            """
+            )
+        )
         self.assertEqual(self._read("dir with space/é.txt"), "y\n")
         self.assertEqual(self._read("f.txt"), "y\n")
 
     def test_hunks_apply_at_offset(self):
         self._write("f.txt", "pad\n" + "".join(f"{i}\n" for i in range(20)))
-        self._apply(dedent("""\
+        self._apply(
+            dedent(
+                """\
             --- a/f.txt
             +++ b/f.txt
             @@ -1,2 +1,2 @@
@@ -159,13 +169,17 @@ class TestPatch(unittest.TestCase):
              14
             -15
             +fifteen
-            """))
+            """
+            )
+        )
         lines = self._read("f.txt").splitlines()
         self.assertEqual((lines[2], lines[16]), ("one", "fifteen"))
 
     def test_blank_context_line_without_space(self):
         self._write("f.txt", "a\n\nb\n")
-        self._apply(dedent("""\
+        self._apply(
+            dedent(
+                """\
             --- a/f.txt
             +++ b/f.txt
             @@ -1,3 +1,3 @@
@@ -173,13 +187,16 @@ class TestPatch(unittest.TestCase):
 
             -b
             +B
-            """))
+            """
+            )
+        )
         self.assertEqual(self._read("f.txt"), "a\n\nB\n")
 
     # A lone "\r" is line content, and added lines take the file's line endings
     # whatever the patch's line endings are.
     def test_line_endings_follow_the_file(self):
-        patch = dedent("""\
+        patch = dedent(
+            """\
             --- a/f.txt
             +++ b/f.txt
             @@ -1,3 +1,3 @@
@@ -187,7 +204,8 @@ class TestPatch(unittest.TestCase):
             -c
             +C
              d
-            """)
+            """
+        )
         for file_eol, patch_eol in [("\r\n", "\n"), ("\n", "\r\n")]:
             with self.subTest(file_eol=repr(file_eol), patch_eol=repr(patch_eol)):
                 self._write("f.txt", file_eol.join(["a\rb", "c", "d", ""]))
@@ -200,7 +218,9 @@ class TestPatch(unittest.TestCase):
         self._write("a.txt", "a\n")
         self._write("b.txt", "b\n")
         with self.assertRaisesRegex(ValueError, r"b\.txt @@ .*does not match"):
-            self._apply(dedent("""\
+            self._apply(
+                dedent(
+                    """\
                 --- a/a.txt
                 +++ b/a.txt
                 @@ -1 +1 @@
@@ -211,7 +231,9 @@ class TestPatch(unittest.TestCase):
                 @@ -1 +1 @@
                 -not b
                 +B
-                """))
+                """
+                )
+            )
         self.assertEqual(self._read("a.txt"), "a\n")
 
     def test_unsupported_patches_are_rejected(self):

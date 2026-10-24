@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from builderer.details.naming import flat_target_name
 from builderer.details.target_artifact import (
     get_target_artifact_path,
     get_target_artifact_subpath,
@@ -21,7 +22,7 @@ def mk_target_build_path(package, target):
 
 
 def phony_target_name(package, target):
-    return f"{package.name}@{target.name}"
+    return flat_target_name(package.name, target.name)
 
 
 def is_header_only_library(target):

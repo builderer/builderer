@@ -12,11 +12,13 @@ pkg = CTX.add_package("MyLibrary")
 
 The package name **must** equal the package directory's path relative to the workspace root, or Builderer raises an error. A top-level `MyLibrary/` directory uses `"MyLibrary"`; a nested package uses the full slash-separated path, e.g. `"MyProject/SubModule"`.
 
+Directory names in a package path must not contain `@` or `:`. Two packages also must not differ only by `/` versus `.` (e.g. `foo/bar` and `foo.bar`); Builderer rejects such pairs when it loads the workspace. Both rules keep [flat target names](commands.md#target-specification) unique.
+
 ## Common target parameters
 
 Every target accepts:
 
-- `name` (required) — unique within its package.
+- `name` (required) — unique within its package. Must not contain `@`, `/` or `:`; `.` is fine (e.g. `calc.app`).
 - `deps` — targets this one depends on (see [Dependency References](#dependency-references)).
 - `condition` — a [`Condition`](configuration.md#condition) that gates the whole target; when it doesn't match the active config, the target is excluded from generation entirely.
 

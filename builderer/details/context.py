@@ -2,6 +2,7 @@ from pathlib import Path
 from typing import Callable, Dict
 
 from builderer import Config
+from builderer.details.naming import validate_package_name
 from builderer.details.package import Package
 
 
@@ -46,6 +47,7 @@ class BuildContext(Context):
             )
         if name in self.packages:
             raise ValueError(f"package with name='{name}' already exists")
+        validate_package_name(name)
         self.packages[name] = Package(name=name, root=self.root)
         return self.packages[name]
 

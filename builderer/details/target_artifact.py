@@ -50,6 +50,19 @@ def _default_artifact_filename(config: Config, target: BuildTarget) -> str:
     raise TypeError(f"unsupported build target type '{type(target).__name__}'")
 
 
+# Directory that holds a config's build outputs. An Xcode build_root is the
+# .xcodeproj bundle itself, which Xcode owns, so its outputs go beside it instead
+# (e.g. Out/build/macos-xcode.noindex).
+def artifact_root(config) -> Path:
+    build_root = Path(config.build_root)
+    if build_root.suffix == ".xcodeproj":
+        # Spotlight skips directories ending in ".noindex", the same convention
+        # Xcode's own DerivedData uses (Build/Intermediates.noindex), so macOS
+        # doesn't index every intermediate and product as it's written.
+        return build_root.with_suffix(".noindex")
+    return build_root
+
+
 def _default_artifact_subpath(config, package_name: str, target: BuildTarget) -> Path:
     if isinstance(target, (CCLibrary, SwiftLibrary)):
         kind = "libs"
@@ -61,7 +74,7 @@ def _default_artifact_subpath(config, package_name: str, target: BuildTarget) ->
         kind = "metallibs"
     else:
         raise TypeError(f"unsupported build target type '{type(target).__name__}'")
-    return Path(config.build_root).joinpath(
+    return artifact_root(config).joinpath(
         ".artifacts",
         str(config.architecture),
         str(config.build_config),

@@ -2,6 +2,7 @@ import unittest
 from pathlib import Path
 
 from builderer.details.target_artifact import (
+    artifact_root,
     _default_artifact_filename,
     _default_artifact_subpath,
     get_target_artifact_subpath,
@@ -66,6 +67,28 @@ class TestArtifactSubpath(unittest.TestCase):
             _default_artifact_subpath(cfg, "pkg", make_cc_library("a")),
             Path("Out/build/windows/.artifacts/x64/debug/vs2022/libs/pkg/a.lib"),
         )
+
+    def test_xcode_artifacts_go_beside_the_project_bundle_not_inside_it(self):
+        # Xcode owns the .xcodeproj bundle, so outputs go beside it in <name>.noindex
+        cfg = make_config(
+            platform="macos",
+            architecture="arm64",
+            build_config="debug",
+            buildtool="xcode",
+            build_root="Out/build/macos-xcode.xcodeproj",
+        )
+        self.assertEqual(
+            _default_artifact_subpath(cfg, "pkg", make_cc_library("a")),
+            Path(
+                "Out/build/macos-xcode.noindex/.artifacts/arm64/debug/xcode/libs/pkg/liba.a"
+            ),
+        )
+
+    def test_artifact_root_keeps_directory_build_roots_even_when_dotted(self):
+        for build_root in ["Out/build/linux", "Out/build/v1.2", "Out/build/x.sln"]:
+            with self.subTest(build_root=build_root):
+                cfg = make_config(build_root=build_root)
+                self.assertEqual(artifact_root(cfg), Path(build_root))
 
     def test_output_path_override_replaces_the_default(self):
         cfg = make_config(platform="windows", architecture="x64", build_config="debug")
