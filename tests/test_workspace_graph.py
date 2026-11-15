@@ -1,6 +1,15 @@
 import unittest
 
-from factories import make_cc_library, make_cc_binary, make_package, make_workspace
+from builderer.details.targets.swift_library import SwiftLibrary
+
+from factories import (
+    make_apple_application,
+    make_cc_binary,
+    make_cc_library,
+    make_cc_shared_library,
+    make_package,
+    make_workspace,
+)
 
 
 class TestFindTarget(unittest.TestCase):
@@ -109,3 +118,35 @@ class TestDependencies(unittest.TestCase):
         app = make_cc_binary("app", workspace_root="pkg", deps=["Nope:missing"])
         with self.assertRaises(KeyError):
             make_workspace([make_package("pkg", [app])])
+
+
+class TestSharedLibraryDependencies(unittest.TestCase):
+    def test_binaries_and_shared_libraries_may_depend_on_a_shared_library(self):
+        shared = make_cc_shared_library("shared")
+        app = make_cc_binary("app", deps=[":shared"])
+        outer = make_cc_shared_library("outer", deps=[":shared"])
+        ws = make_workspace([make_package("pkg", [shared, app, outer])])
+        ws._update_graph()
+
+    def test_other_targets_may_not_depend_on_a_shared_library(self):
+        for dependent in [
+            make_cc_library("lib", deps=[":shared"]),
+            SwiftLibrary(name="swift", workspace_root="pkg", deps=[":shared"]),
+            make_apple_application(
+                "App.app", binary=":shared", info_plist={"CFBundleName": "App"}
+            ),
+        ]:
+            with self.subTest(dependent=dependent.name):
+                shared = make_cc_shared_library("shared")
+                ws = make_workspace([make_package("pkg", [shared, dependent])])
+                with self.assertRaisesRegex(ValueError, "cannot depend on"):
+                    ws._update_graph()
+
+    def test_dependencies_stay_transitive_through_a_shared_library(self):
+        static = make_cc_library("static")
+        shared = make_cc_shared_library("shared", deps=[":static"])
+        app = make_cc_binary("app", deps=[":shared"])
+        pkg = make_package("pkg", [static, shared, app])
+        ws = make_workspace([pkg])
+        names = [t.name for _, t in ws.all_dependencies(pkg, app)]
+        self.assertEqual(names, ["static", "shared"])

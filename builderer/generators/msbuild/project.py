@@ -9,6 +9,7 @@ from builderer.details.target_artifact import get_target_artifact_subpath
 from builderer.details.package import Package
 from builderer.details.targets.cc_binary import CCBinary
 from builderer.details.targets.cc_library import CCLibrary
+from builderer.details.targets.cc_shared_library import CCSharedLibrary
 from builderer.details.targets.target import BuildTarget
 from builderer.details.variable_expansion import resolve_conditionals, bake_config
 from builderer.details.workspace import Workspace
@@ -185,6 +186,8 @@ class MsBuildProject:
         if isinstance(self.target, CCLibrary):
             # If no source files, use empty string to represent header-only library
             return "StaticLibrary" if self.target.srcs else ""
+        elif isinstance(self.target, CCSharedLibrary):
+            return "DynamicLibrary"
         elif isinstance(self.target, CCBinary):
             return "Application"
         else:
@@ -192,11 +195,11 @@ class MsBuildProject:
 
     @property
     def requires_comnpiling(self):
-        return isinstance(self.target, (CCLibrary, CCBinary))
+        return isinstance(self.target, (CCLibrary, CCBinary, CCSharedLibrary))
 
     @property
     def requires_linking(self):
-        return isinstance(self.target, CCBinary)
+        return isinstance(self.target, (CCBinary, CCSharedLibrary))
 
     ### vcxproj support
 
@@ -224,9 +227,10 @@ class MsBuildProject:
         append_text_element(xgroup, "EnforceProcessCountAcrossBuilds", "true")
 
     def _append_dependencies(self, xparent: ParentNode):
-        # Only binaries carry edges, referencing their full transitive lib closure: a
-        # static lib links nothing, so the binary alone must list every .lib to link.
-        if not isinstance(self.target, CCBinary):
+        # Only linked targets carry edges, referencing their full transitive lib
+        # closure: a static lib links nothing, so the linked target alone must list
+        # every .lib to link.
+        if not isinstance(self.target, (CCBinary, CCSharedLibrary)):
             return
         deps = [
             dep
@@ -247,6 +251,9 @@ class MsBuildProject:
                     )
                 ),
             )
+            # The import library is linked; the DLL stays at its own output path
+            if isinstance(dep, CCSharedLibrary):
+                append_text_element(xref, "Private", "false")
 
     def _append_source_files(
         self, xparent: ParentNode, group_name: str, files: List[str]
@@ -341,7 +348,7 @@ class MsBuildProject:
             self._append_link_config(xgroup, config=config)
 
     def _compile_properties(self, config: Config) -> Tuple[Dict[str, str], List[str]]:
-        assert isinstance(self.target, (CCLibrary, CCBinary))
+        assert isinstance(self.target, (CCLibrary, CCBinary, CCSharedLibrary))
         flags = [
             *resolve_conditionals(config=config, value=self.target.c_flags),
             *resolve_conditionals(config=config, value=self.target.cxx_flags),
@@ -352,7 +359,7 @@ class MsBuildProject:
         defines = [
             *resolve_conditionals(config=config, value=self.target.private_defines)
         ]
-        if isinstance(self.target, CCLibrary):
+        if isinstance(self.target, (CCLibrary, CCSharedLibrary)):
             defines.extend(
                 resolve_conditionals(config=config, value=self.target.public_defines)
             )
@@ -362,7 +369,7 @@ class MsBuildProject:
                 for _, dep_target in self.workspace.all_dependencies(
                     self.package, self.target
                 )
-                if isinstance(dep_target, CCLibrary)
+                if isinstance(dep_target, (CCLibrary, CCSharedLibrary))
                 for define in resolve_conditionals(
                     config=config, value=dep_target.public_defines
                 )
@@ -371,7 +378,7 @@ class MsBuildProject:
         properties["PreprocessorDefinitions"] = ";".join(defines)
         # Header search paths...
         includes = []
-        if isinstance(self.target, (CCLibrary, CCBinary)):
+        if isinstance(self.target, (CCLibrary, CCBinary, CCSharedLibrary)):
             includes.extend(
                 [
                     as_msft_path(os.path.relpath(include, self.project_root))
@@ -380,7 +387,7 @@ class MsBuildProject:
                     )
                 ]
             )
-        if isinstance(self.target, CCLibrary):
+        if isinstance(self.target, (CCLibrary, CCSharedLibrary)):
             includes.extend(
                 [
                     as_msft_path(os.path.relpath(include, self.project_root))
@@ -395,7 +402,7 @@ class MsBuildProject:
                 for _, dep_target in self.workspace.all_dependencies(
                     self.package, self.target
                 )
-                if isinstance(dep_target, CCLibrary)
+                if isinstance(dep_target, (CCLibrary, CCSharedLibrary))
                 for include in resolve_conditionals(
                     config=config, value=dep_target.public_includes
                 )
@@ -416,7 +423,7 @@ class MsBuildProject:
         append_text_element(xcompile, "AdditionalOptions", " ".join(unknown_cflags))
 
     def _link_properties(self, config: Config) -> Tuple[Dict[str, str], List[str]]:
-        assert isinstance(self.target, CCBinary)
+        assert isinstance(self.target, (CCBinary, CCSharedLibrary))
         properties = DEFAULT_LINK_SETTINGS.copy()
         # Known linker flags become properties, the rest pass through...
         unknown_lflags = map_flags(

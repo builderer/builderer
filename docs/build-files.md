@@ -78,6 +78,33 @@ pkg.cc_binary(
 
 `cc_binary` accepts `srcs`, `c_flags`, `cxx_flags`, `private_includes`, `private_defines`, `deps`, and `output_path`, plus `link_flags` (linker flags — not available on `cc_library`). It has no `hdrs` or `public_*` fields.
 
+### cc_shared_library
+
+Defines a shared library: `lib<name>.dylib` on macOS, `lib<name>.so` on Linux, `<name>.dll` on Windows.
+
+```python
+pkg.cc_shared_library(
+    name = "mylib",
+    hdrs = ["include/*.h"],
+    srcs = ["src/*.cpp"],
+    public_includes = ["include"],
+    deps = [":support"],
+)
+
+pkg.cc_binary(
+    name = "myapp",
+    srcs = ["main.cpp"],
+    deps = [":mylib"],    # links mylib and finds it at runtime
+)
+```
+
+`cc_shared_library` accepts every `cc_library` field plus `link_flags`. Like a `cc_library`, its public headers, includes and defines reach the targets that depend on it, and dependencies are transitive as for any other target.
+
+- **Dependents:** `cc_binary` and `cc_shared_library` targets may depend on it.
+- **macOS and Linux:** the library is named by its file name (`@rpath/<file>` on macOS, `soname` on Linux), and each dependent gets a runtime search path to it relative to its own output (`@loader_path`, `$ORIGIN`), so outputs can move together.
+- **Windows:** dependents link its import library. The loader finds the DLL beside the dependent or on `PATH`; Builderer never copies outputs, so set `output_path` to place them. Exported functions are declared with `__declspec(dllexport)` or `/EXPORT` link flags.
+- **Generators:** make (macOS, Linux) and MSBuild (Windows). The Xcode generator does not support it.
+
 ### Flags and project settings
 
 The Makefile generator passes flags to the compiler verbatim. The Xcode and MSBuild generators translate every compiler, linker and Swift flag that has a native project setting (language standard, optimization, warnings, debug info, defines, search paths, etc.) into that setting, so it shows up in the IDE, and remove it from the command line. Unknown flags pass through unchanged.
@@ -482,7 +509,8 @@ Builderer validates every **direct** dependency edge against the consumer's type
 
 | Target                                       | May directly depend on                                                                               |
 |----------------------------------------------|------------------------------------------------------------------------------------------------------|
-| `cc_library`, `cc_binary`, `swift_cc_module` | `cc_library`, `git_repository`, `https_repository`, `generate_files`                                 |
+| `cc_library`, `swift_cc_module`              | `cc_library`, `git_repository`, `https_repository`, `generate_files`                                 |
+| `cc_binary`, `cc_shared_library`             | `cc_library`, `cc_shared_library`, `git_repository`, `https_repository`, `generate_files`            |
 | `swift_library`, `swift_binary`              | `swift_library`, `swift_cc_module`, `git_repository`, `https_repository`, `generate_files`           |
 | `apple_application`                          | `cc_binary`, `swift_binary`, `metal_library`, `git_repository`, `https_repository`, `generate_files` |
 | `metal_library`, `generate_files`            | `git_repository`, `https_repository`, `generate_files`                                               |

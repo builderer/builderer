@@ -5,6 +5,7 @@ from typing import Dict, TextIO
 
 from builderer import Config
 from builderer.details.targets.cc_binary import CCBinary
+from builderer.details.targets.cc_shared_library import CCSharedLibrary
 from builderer.details.targets.target import BuildTarget
 from builderer.details.workspace import Workspace, target_full_name
 from builderer.generators.msbuild.project import MsBuildProject
@@ -52,11 +53,11 @@ class MsBuildSolution:
             file.write(
                 f'Project("{CXX_GUID}") = "{project.target.name}", "{as_msft_path(project_path)}", "{project.project_guid}"\n'
             )
-            # Mirror project.py: binaries list their full transitive lib closure,
-            # libraries declare nothing.
+            # Mirror project.py: linked targets list their full transitive lib
+            # closure, libraries declare nothing.
             dep_pairs = (
                 self.workspace.all_dependencies(project.package, project.target)
-                if isinstance(project.target, CCBinary)
+                if isinstance(project.target, (CCBinary, CCSharedLibrary))
                 else []
             )
             deps = [

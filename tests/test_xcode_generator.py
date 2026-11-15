@@ -27,6 +27,7 @@ from factories import (
     make_config,
     make_cc_library,
     make_cc_binary,
+    make_cc_shared_library,
     make_package,
     make_workspace,
 )
@@ -53,6 +54,23 @@ def _project(cxx_flags=[]):
         build_config=["debug", "release"],
     )
     return generate_xcode_project(config, ws)
+
+
+class TestXcodeSharedLibrary(unittest.TestCase):
+    def test_shared_library_is_rejected(self):
+        pkg = make_package("pkg", [make_cc_shared_library("x", srcs=["pkg/x.cpp"])])
+        config = make_config(
+            buildtool="xcode",
+            toolchain="clang",
+            platform="macos",
+            build_root="Out/build/macos.xcodeproj",
+            architecture=["arm64"],
+            build_config=["debug"],
+        )
+        with self.assertRaisesRegex(
+            ValueError, "'pkg:x' is not supported by the Xcode generator"
+        ):
+            generate_xcode_project(config, make_workspace([pkg]))
 
 
 class TestXcodeGenerator(unittest.TestCase):

@@ -11,6 +11,7 @@ from builderer.details.package import Package
 from builderer.details.targets.apple_application import AppleApplication
 from builderer.details.targets.cc_binary import CCBinary
 from builderer.details.targets.cc_library import CCLibrary
+from builderer.details.targets.cc_shared_library import CCSharedLibrary
 from builderer.details.targets.metal_library import MetalLibrary
 from builderer.details.targets.swift_binary import SwiftBinary
 from builderer.details.targets.swift_library import SwiftLibrary
@@ -24,6 +25,12 @@ LIBRARY_NAMING_BY_PLATFORM = {
     "macos": ("lib", ".a"),
     "ios": ("lib", ".a"),
     "emscripten": ("lib", ".a"),
+}
+
+SHARED_LIBRARY_NAMING_BY_PLATFORM = {
+    "windows": ("", ".dll"),
+    "linux": ("lib", ".so"),
+    "macos": ("lib", ".dylib"),
 }
 
 BINARY_EXTENSION_BY_PLATFORM = {
@@ -42,6 +49,11 @@ def _normalize_app_bundle_name(name: str) -> str:
 def _default_artifact_filename(config: Config, target: BuildTarget) -> str:
     if isinstance(target, (CCLibrary, SwiftLibrary)):
         prefix, extension = LIBRARY_NAMING_BY_PLATFORM[config.platform]
+        return f"{prefix}{target.name}{extension}"
+    if isinstance(target, CCSharedLibrary):
+        if config.platform not in SHARED_LIBRARY_NAMING_BY_PLATFORM:
+            raise ValueError(f"cc_shared_library is not supported on {config.platform}")
+        prefix, extension = SHARED_LIBRARY_NAMING_BY_PLATFORM[config.platform]
         return f"{prefix}{target.name}{extension}"
     if isinstance(target, (CCBinary, SwiftBinary)):
         extension = BINARY_EXTENSION_BY_PLATFORM[config.platform]

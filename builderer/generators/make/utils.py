@@ -11,6 +11,7 @@ from builderer.details.target_artifact import (
 from builderer.details.targets.apple_application import AppleApplication
 from builderer.details.targets.cc_binary import CCBinary
 from builderer.details.targets.cc_library import CCLibrary
+from builderer.details.targets.cc_shared_library import CCSharedLibrary
 from builderer.details.targets.metal_library import MetalLibrary
 from builderer.details.targets.swift_binary import SwiftBinary
 from builderer.details.targets.swift_library import SwiftLibrary
@@ -84,6 +85,12 @@ def cc_library_output_path(config, package, target):
 
 
 def cc_binary_output_path(config, package, target):
+    subpath = get_target_artifact_subpath(config, package.name, target).as_posix()
+    return f"$(WORKSPACE_ROOT)/{subpath}"
+
+
+def cc_shared_library_output_path(config, package, target):
+    assert isinstance(target, CCSharedLibrary)
     subpath = get_target_artifact_subpath(config, package.name, target).as_posix()
     return f"$(WORKSPACE_ROOT)/{subpath}"
 
