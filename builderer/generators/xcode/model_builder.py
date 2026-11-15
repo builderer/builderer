@@ -28,6 +28,7 @@ from builderer.details.targets.apple_application import (
 from builderer.details.targets.target import BuildTarget
 from builderer.details.targets.cc_binary import CCBinary
 from builderer.details.targets.cc_library import CCLibrary
+from builderer.details.targets.cc_shared_library import CCSharedLibrary
 from builderer.details.targets.metal_library import MetalLibrary
 from builderer.details.targets.swift_binary import SwiftBinary
 from builderer.details.targets.swift_cc_module import SwiftCcModule
@@ -195,6 +196,11 @@ class TargetInfo:
         package: Package,
         target: BuildTarget,
     ) -> TargetInfo:
+        if isinstance(target, CCSharedLibrary):
+            raise ValueError(
+                f"cc_shared_library '{package.name}:{target.name}' is not supported "
+                f"by the Xcode generator"
+            )
         sources: List[str] = []
         headers: List[str] = []
         resources: List[Tuple[str, str]] = []

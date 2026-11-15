@@ -9,6 +9,7 @@ from factories import (
     make_config,
     make_cc_library,
     make_cc_binary,
+    make_cc_shared_library,
     make_apple_application,
     make_package,
     make_workspace,
@@ -36,6 +37,43 @@ def _makefile(target, package, workspace, config):
 def _single(target, config=None):
     pkg = make_package("pkg", [target])
     return _makefile(target, pkg, make_workspace([pkg]), config or _make_config())
+
+
+def _macos_config():
+    return make_config(
+        platform="macos",
+        toolchain="clang",
+        buildtool="make",
+        architecture="arm64",
+        build_config="debug",
+        build_root="Out/build/macos",
+    )
+
+
+# A binary in package "app" using a shared library in package "lib", which links
+# a static library of its own
+def _binary_on_shared_library(config):
+    static = make_cc_library("static", workspace_root="lib", srcs=["lib/static.cpp"])
+    shared = make_cc_shared_library(
+        "shared",
+        workspace_root="lib",
+        srcs=["lib/shared.cpp"],
+        public_includes=["lib/inc"],
+        public_defines=["SHARED_API"],
+        private_includes=["lib/private"],
+        private_defines=["SHARED_INTERNAL"],
+        deps=[":static"],
+    )
+    app = make_cc_binary(
+        "app", workspace_root="app", srcs=["app/main.cpp"], deps=["lib:shared"]
+    )
+    lib_pkg = make_package("lib", [static, shared])
+    app_pkg = make_package("app", [app])
+    ws = make_workspace([lib_pkg, app_pkg])
+    return (
+        _makefile(app, app_pkg, ws, config),
+        _makefile(shared, lib_pkg, ws, config),
+    )
 
 
 class TestTargetMk(unittest.TestCase):
@@ -136,3 +174,48 @@ class TestTargetMk(unittest.TestCase):
         self.assertIn("pkg/hdrinc", mk)
         # nothing to archive/link for a header-only lib
         self.assertNotIn("libhdronly.a", mk)
+
+
+class TestSharedLibraryMk(unittest.TestCase):
+    def test_macos_shared_library_links_as_dylib_named_by_rpath(self):
+        mk = _single(
+            make_cc_shared_library("x", srcs=["pkg/x.cpp"], link_flags=["-lfoo"]),
+            _macos_config(),
+        )
+        self.assertIn("-dynamiclib -Wl,-install_name,@rpath/libx.dylib -lfoo", mk)
+        self.assertIn("$(CCLD)", mk)
+        self.assertIn("libx.dylib", mk)
+
+    def test_linux_shared_library_links_with_soname(self):
+        mk = _single(make_cc_shared_library("x", srcs=["pkg/x.cpp"]))
+        self.assertIn("-shared -Wl,-soname,libx.so", mk)
+        self.assertIn("libx.so", mk)
+
+    def test_shared_library_links_its_static_dependencies(self):
+        _, shared_mk = _binary_on_shared_library(_make_config())
+        self.assertIn("libstatic.a", shared_mk)
+
+    def test_linux_dependent_links_the_library_with_an_origin_rpath(self):
+        app_mk, _ = _binary_on_shared_library(_make_config())
+        self.assertIn("libshared.so", app_mk)
+        self.assertIn("'-Wl,-rpath,$$ORIGIN/../lib'", app_mk)
+
+    def test_macos_dependent_links_the_library_with_a_loader_path_rpath(self):
+        app_mk, _ = _binary_on_shared_library(_macos_config())
+        self.assertIn("libshared.dylib", app_mk)
+        self.assertIn("-Wl,-rpath,@loader_path/../lib", app_mk)
+
+    def test_public_interface_reaches_dependents_and_private_does_not(self):
+        app_mk, shared_mk = _binary_on_shared_library(_make_config())
+        self.assertIn("lib/inc", app_mk)
+        self.assertIn("SHARED_API", app_mk)
+        self.assertNotIn("lib/private", app_mk)
+        self.assertNotIn("SHARED_INTERNAL", app_mk)
+        # the library compiles with both its public and private settings
+        for setting in ["lib/inc", "SHARED_API", "lib/private", "SHARED_INTERNAL"]:
+            self.assertIn(setting, shared_mk)
+
+    def test_binaries_without_shared_libraries_get_no_rpath(self):
+        mk = _single(make_cc_binary("app", srcs=["pkg/main.cpp"]))
+        self.assertNotIn("rpath", mk)
+        self.assertNotIn("-shared", mk)

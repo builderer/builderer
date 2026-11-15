@@ -1,6 +1,7 @@
 from typing import Iterator, Tuple
 
 from builderer.details.targets.cc_library import CCLibrary
+from builderer.details.targets.cc_shared_library import CCSharedLibrary
 from builderer.details.targets.target import (
     BuildTarget,
     PreBuildTarget,
@@ -37,6 +38,11 @@ class CCBinary(BuildTarget):
             yield "private", self.private_includes
 
 
-# A cc_binary links cc_libraries and may source inputs from repositories or
-# generated-file (prebuild) targets.
-CCBinary.allowed_deps_types = (CCLibrary, RepositoryTarget, PreBuildTarget)
+# A cc_binary links cc_libraries and shared libraries, and may source inputs from
+# repositories or generated-file (prebuild) targets.
+CCBinary.allowed_deps_types = (
+    CCLibrary,
+    CCSharedLibrary,
+    RepositoryTarget,
+    PreBuildTarget,
+)

@@ -14,6 +14,7 @@ from builderer.details.package import Package
 from builderer.details.targets.apple_application import AppleApplication
 from builderer.details.targets.cc_binary import CCBinary
 from builderer.details.targets.cc_library import CCLibrary
+from builderer.details.targets.cc_shared_library import CCSharedLibrary
 from builderer.details.targets.target import Target
 from builderer.details.workspace import Workspace
 
@@ -54,6 +55,12 @@ def make_cc_library(name: str, *, workspace_root: str = "pkg", **kwargs) -> CCLi
 
 def make_cc_binary(name: str, *, workspace_root: str = "pkg", **kwargs) -> CCBinary:
     return CCBinary(name=name, workspace_root=workspace_root, **kwargs)
+
+
+def make_cc_shared_library(
+    name: str, *, workspace_root: str = "pkg", **kwargs
+) -> CCSharedLibrary:
+    return CCSharedLibrary(name=name, workspace_root=workspace_root, **kwargs)
 
 
 def make_apple_application(

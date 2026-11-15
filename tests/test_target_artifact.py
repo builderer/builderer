@@ -16,6 +16,7 @@ from factories import (
     make_config,
     make_cc_library,
     make_cc_binary,
+    make_cc_shared_library,
     make_apple_application,
     make_package,
     make_workspace,
@@ -40,6 +41,29 @@ class TestArtifactFilename(unittest.TestCase):
                 self.assertEqual(
                     _default_artifact_filename(cfg, make_cc_binary("app")), bin_name
                 )
+
+    def test_shared_library_filenames_follow_platform_conventions(self):
+        for platform, name in [
+            ("windows", "x.dll"),
+            ("linux", "libx.so"),
+            ("macos", "libx.dylib"),
+        ]:
+            with self.subTest(platform=platform):
+                cfg = make_config(
+                    platform=platform, architecture="x64", build_config="debug"
+                )
+                self.assertEqual(
+                    _default_artifact_filename(cfg, make_cc_shared_library("x")), name
+                )
+
+    def test_shared_library_is_unsupported_on_ios_and_emscripten(self):
+        for platform in ["ios", "emscripten"]:
+            with self.subTest(platform=platform):
+                cfg = make_config(
+                    platform=platform, architecture="arm64", build_config="debug"
+                )
+                with self.assertRaisesRegex(ValueError, "not supported on"):
+                    _default_artifact_filename(cfg, make_cc_shared_library("x"))
 
     def test_apple_application_filename_gets_app_suffix(self):
         cfg = make_config(platform="macos", architecture="arm64", build_config="debug")
@@ -146,6 +170,19 @@ class TestArtifactCollisions(unittest.TestCase):
             check_artifact_collisions(make_workspace([pkg]), _linux())
         self.assertIn("pkg:foo", str(ctx.exception))
         self.assertIn("pkg:libfoo.a", str(ctx.exception))
+
+    def test_shared_library_and_binary_with_the_same_filename_collide(self):
+        pkg = make_package(
+            "pkg",
+            [
+                make_cc_shared_library("foo", srcs=["pkg/s.c"]),
+                make_cc_binary("libfoo.so", srcs=["pkg/m.c"]),
+            ],
+        )
+        with self.assertRaises(ValueError) as ctx:
+            check_artifact_collisions(make_workspace([pkg]), _linux())
+        self.assertIn("pkg:foo", str(ctx.exception))
+        self.assertIn("pkg:libfoo.so", str(ctx.exception))
 
     def test_header_only_library_produces_nothing_to_collide_with(self):
         pkg = make_package(

@@ -5,6 +5,7 @@ from builderer.details.naming import validate_target_name
 from builderer.details.targets.apple_application import AppleApplication
 from builderer.details.targets.cc_binary import CCBinary
 from builderer.details.targets.cc_library import CCLibrary
+from builderer.details.targets.cc_shared_library import CCSharedLibrary
 from builderer.details.targets.file_group import FileGroup
 from builderer.details.targets.generate_files import GenerateFiles
 from builderer.details.targets.git_repository import GitRepository
@@ -37,6 +38,9 @@ class BuiltinRules:
 
     def cc_binary(self, **kwargs):
         self.outer.add_target(target_type=CCBinary, **kwargs)
+
+    def cc_shared_library(self, **kwargs):
+        self.outer.add_target(target_type=CCSharedLibrary, **kwargs)
 
     def apple_application(self, **kwargs):
         self.outer.add_target(target_type=AppleApplication, **kwargs)

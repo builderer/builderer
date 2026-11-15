@@ -16,6 +16,7 @@ from factories import (
     make_config,
     make_cc_library,
     make_cc_binary,
+    make_cc_shared_library,
     make_package,
     make_workspace,
 )
@@ -230,6 +231,34 @@ class TestDependencyPropagation(unittest.TestCase):
         self.assertTrue(any("deep.vcxproj" in r for r in refs))
         self.assertTrue(any("mid.vcxproj" in r for r in refs))
         self.assertTrue(any("hdr.vcxproj" in r for r in refs))
+
+    def test_shared_library_is_a_dynamic_library_linking_its_deps(self):
+        static = make_cc_library("static", srcs=["pkg/static.cpp"])
+        shared = make_cc_shared_library(
+            "shared", srcs=["pkg/shared.cpp"], deps=[":static"]
+        )
+        pkg = make_package("pkg", [static, shared])
+        doc = _render(shared, pkg, make_workspace([pkg]))
+        self.assertIn("DynamicLibrary", _texts(doc, "ConfigurationType"))
+        refs = _includes(doc, "ProjectReference")
+        self.assertTrue(any("static.vcxproj" in r for r in refs))
+
+    def test_dependent_references_shared_library_without_copying_it(self):
+        shared = make_cc_shared_library(
+            "shared", srcs=["pkg/shared.cpp"], public_includes=["pkg/inc"]
+        )
+        app = make_cc_binary("app", srcs=["pkg/main.cpp"], deps=[":shared"])
+        pkg = make_package("pkg", [shared, app])
+        doc = _render(app, pkg, make_workspace([pkg]))
+        (xref,) = [
+            e
+            for e in doc.getElementsByTagName("ProjectReference")
+            if "shared.vcxproj" in e.getAttribute("Include")
+        ]
+        self.assertEqual(_texts(xref, "Private"), ["false"])
+        self.assertTrue(
+            any("inc" in v for v in _texts(doc, "AdditionalIncludeDirectories"))
+        )
 
     def test_library_emits_no_project_references(self):
         # lib->lib edges are gone: a library references nothing (it links nothing; its
